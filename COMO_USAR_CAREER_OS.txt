@@ -1,0 +1,97 @@
+CAREER OS v0.6 - GUIA RÁPIDO
+========================================
+
+1. INSTALAR / ABRIR
+----------------------------------------
+Modo simples:
+- Extraia o projeto.
+- Dê dois cliques em start_career_os.bat.
+- Aguarde a primeira instalação.
+- O painel abrirá em http://127.0.0.1:8765.
+
+Modo instalado:
+- Gere ou baixe CareerOS-Setup-0.6.0.exe.
+- Instale normalmente.
+- Abra pelo atalho Career OS.
+
+2. INSTALAR A EXTENSÃO
+----------------------------------------
+- Execute install_extension.bat.
+- Abra chrome://extensions ou edge://extensions.
+- Ative Modo do desenvolvedor.
+- Clique em Carregar sem compactação.
+- Selecione a pasta extension.
+- Fixe a extensão na barra do navegador.
+
+3. PRIMEIRA CONFIGURAÇÃO
+----------------------------------------
+- Abra Perfil.
+- Complete e-mail, telefone, LinkedIn, GitHub, curso e previsão de formação.
+- Abra Currículo.
+- Envie um PDF com texto selecionável.
+- Revise os dados extraídos.
+- Abra Inteligência e escolha Heurístico, Codex ou Claude.
+
+4. ENCONTRAR E CAPTURAR VAGA
+----------------------------------------
+- Abra Buscar vagas.
+- Escolha Gupy, Indeed, LinkedIn ou outra fonte.
+- Abra os detalhes de uma vaga.
+- Clique na extensão Career OS.
+- Escolha Capturar vaga atual.
+- A vaga aparecerá em Minhas vagas já analisada.
+
+5. ANALISAR E GERAR CURRÍCULO
+----------------------------------------
+- Abra Minhas vagas.
+- Clique em Analisar.
+- Confira score, skills e bloqueios.
+- Clique em Gerar currículo.
+- Salve o DOCX específico da vaga.
+- Se quiser, abra Análise de currículo e compare o arquivo com a vaga.
+
+6. CANDIDATURA ASSISTIDA
+----------------------------------------
+- Abra o formulário da vaga.
+- Clique na extensão.
+- Clique em Preencher candidatura.
+- Revise todos os campos destacados.
+- Complete perguntas não reconhecidas.
+- Envie manualmente.
+- No Career OS, marque a vaga como applied.
+
+7. ATUALIZAR RESULTADOS
+----------------------------------------
+- Quando houver entrevista, marque interview.
+- Quando houver oferta, marque offer.
+- Quando houver rejeição, marque rejected.
+- O painel Aprendizado será atualizado automaticamente.
+
+8. E-MAIL E FOLLOW-UP
+----------------------------------------
+- Exporte mensagens importantes como .eml.
+- Importe na seção E-mail.
+- O sistema tentará associar o retorno à vaga.
+- Use Follow-up para agendar mensagens de acompanhamento.
+
+9. ONDE OS DADOS FICAM
+----------------------------------------
+Banco e uploads:
+%LOCALAPPDATA%\CareerOS\
+
+Segredos:
+Windows Credential Locker via keyring.
+
+IMPORTANTE:
+- SQLite não é uma vault.
+- Nunca suba career_os.db, uploads, currículos ou .env para o GitHub.
+- A aplicação não envia candidaturas sozinha.
+- Sempre revise respostas, dados e documentos.
+
+10. TESTAR
+----------------------------------------
+No terminal, dentro do projeto:
+pytest -q
+
+Resultado esperado no ponto atual:
+16 passed
