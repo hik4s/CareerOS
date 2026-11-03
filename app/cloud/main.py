@@ -8,6 +8,7 @@ import json
 import asyncio
 import subprocess
 import sys
+import httpx
 from typing import Annotated, Literal
 from urllib.parse import urlsplit
 from fastapi import FastAPI, Depends, HTTPException, UploadFile, File, Response
@@ -37,6 +38,22 @@ async def config():
 @app.get('/api/health')
 async def health():
     return {'status': 'ok', 'configured': settings().configured, 'version': VERSION}
+
+@app.get('/api/auth/providers')
+async def auth_providers():
+    cfg = settings()
+    if not cfg.configured:
+        return {'ready': False, 'providers': [], 'reason': 'configuration_missing'}
+    try:
+        async with httpx.AsyncClient(timeout=8) as client:
+            response = await client.get(cfg.supabase_url + '/auth/v1/settings', headers={'apikey': cfg.supabase_anon_key})
+        response.raise_for_status()
+        external = response.json().get('external') or {}
+        providers = [name for name in ('google', 'github') if external.get(name) is True]
+        return {'ready': bool(providers), 'providers': providers,
+                'reason': None if providers else 'oauth_setup_required'}
+    except (httpx.HTTPError, ValueError):
+        return {'ready': False, 'providers': [], 'reason': 'auth_unavailable'}
 
 JobStatus = Literal['saved', 'new', 'ready', 'applied', 'interview', 'offer', 'rejected', 'review', 'skip', 'archived', 'screening', 'assessment', 'withdrawn', 'accepted']
 ShortText = Annotated[str, Field(max_length=500)]
