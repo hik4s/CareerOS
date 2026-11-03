@@ -29,7 +29,123 @@ function renderAI(){const external=aiDraft.provider!=='heuristic';$('view').inne
 function showEstimate(){if(!estimate)return;const cost=estimate.estimated_max_cost_usd;const external=estimatePayload.provider!=='heuristic';$('estimateArea').innerHTML=`<div class="consent-area notice ${external?'warning':''}"><strong>Estimativa antes de gerar</strong><p>Entrada aproximada: ${esc(estimate.estimated_input_tokens)} tokens · saída limitada a ${esc(estimate.max_output_tokens)} tokens.<br>${cost==null?'Custo não calculado: informe os preços para uma estimativa.':`Custo estimado: até US$ ${Number(cost).toFixed(6)} com os preços informados.`}${estimate.cached?'<br>Resultado disponível em cache.':''}</p><p>${esc(estimate.notice||'Contagens e custos são estimativas; a cobrança real é definida pelo provedor.')}</p><label class="check"><input type="checkbox" id="aiConsent"> <span>${external?`Autorizo enviar meu perfil, a vaga selecionada, o currículo selecionado (texto extraído limitado) e os textos acima ao provedor ${esc(estimatePayload.provider)} para esta execução. Entendo que podem existir cobranças.`:'Confirmo que o contexto selecionado pode ser usado para gerar este rascunho local.'}</span></label><button id="generateAI" disabled>2. Gerar rascunho</button></div>`;$('aiConsent').onchange=()=>{$('generateAI').disabled=!$('aiConsent').checked};$('generateAI').onclick=e=>busy(e.currentTarget,async()=>{if(!estimatePayload||!$('aiConsent').checked)throw Error('Faça uma nova estimativa e confirme o envio.');if(external&&!apiKey)throw Error('Guarde sua chave de API nesta sessão antes de gerar.');const owner=session?.user?.id;const data=await api('/api/ai/run',{method:'POST',body:JSON.stringify({...estimatePayload,...(external?{api_key:apiKey}:{})})});if(!session||session.user.id!==owner)return;const nextResult=typeof data.result==='string'?data.result:JSON.stringify(data.result,null,2);const nextHistory=await api('/api/ai/history');if(!session||session.user.id!==owner)return;aiResult=nextResult;estimate=null;estimatePayload=null;history=nextHistory;if(tab==='ai')renderAI();toast(data.cached?'Rascunho recuperado do cache.':'Rascunho gerado. Revise antes de usar.')})}
 function renderCapture(){$('view').innerHTML=`<div class="hero"><span class="eyebrow">LEVE SEU RADAR COM VOCÊ</span><h2>Encontrou uma boa vaga?<br>Guarde no CareerOS.</h2><p>Capture oportunidades durante sua pesquisa e organize as próximas etapas no seu espaço pessoal.</p><a class="button" href="/api/extension.zip" download>↓ Baixar extensão Chrome</a></div><div class="card"><h2>Instalar e conectar</h2><div class="steps" style="margin-top:24px"><div class="step"><span class="step-number">01</span><div><h3>Extraia o arquivo baixado</h3><p>Mantenha a pasta da extensão no seu computador.</p></div></div><div class="step"><span class="step-number">02</span><div><h3>Abra chrome://extensions</h3><p>Ative o modo de desenvolvedor, escolha “Carregar sem compactação” e selecione a pasta.</p></div></div><div class="step"><span class="step-number">03</span><div><h3>Conecte à sua conta</h3><p>Informe na extensão o endereço deste site: <strong>${esc(location.origin)}</strong>. Copie abaixo seu token de sessão e cole no campo indicado na extensão.</p></div></div></div><div class="notice warning" style="margin-top:24px">O token concede acesso à sua conta. Mantenha-o privado e cole somente na extensão CareerOS instalada por você. Ele expira; copie um novo token quando precisar reconectar. A extensão mantém o token apenas durante a sessão do navegador.</div><button id="copyToken" class="secondary">Copiar token da sessão</button><p class="fine">Abra uma página de vaga, revise os campos capturados e salve. Você também pode cadastrar vagas manualmente.</p></div>`;$('copyToken').onclick=e=>busy(e.currentTarget,async()=>{const {data,error}=await client.auth.getSession();if(error||!data.session)throw Error('Sessão indisponível. Entre novamente.');await navigator.clipboard.writeText(data.session.access_token);toast('Token copiado. Cole somente na extensão CareerOS.')})}
 $('closeJob').onclick=$('cancelJob').onclick=()=>$('jobDialog').close();$('jobForm').onsubmit=e=>{e.preventDefault();busy(e.submitter,async()=>{const data=Object.fromEntries(new FormData(e.target));const id=data.id;delete data.id;await api(id?`/api/jobs/${id}`:'/api/jobs',{method:id?'PATCH':'POST',body:JSON.stringify(data)});$('jobDialog').close();await reload();toast('Vaga salva.')})};$('logout').onclick=e=>busy(e.currentTarget,async()=>{apiKey='';aiResult='';const {error}=await client.auth.signOut();if(error)throw error;showSession(null);toast('Você saiu da conta.')});$('mobileLogout').onclick=()=>$('logout').click();window.addEventListener('hashchange',setTab);
-(async()=>{try{const response=await fetch('/api/config');if(!response.ok)throw Error('Não foi possível carregar a configuração.');const config=await response.json();if(!config.configured){$('gateMessage').textContent='Este ambiente ainda não foi configurado. O administrador precisa definir o projeto Supabase e habilitar o login Google ou GitHub. Nenhuma conta de demonstração é usada.';return}if(!window.supabase)throw Error('Não foi possível carregar o módulo de autenticação. Atualize a página.');client=window.supabase.createClient(config.supabase_url,config.supabase_anon_key,{auth:{persistSession:true,autoRefreshToken:true,detectSessionInUrl:true}});$('gateMessage').textContent='Entre para acessar seu espaço pessoal.';$('authButtons').classList.remove('hidden');try{const availability=await fetch('/api/auth/providers').then(r=>r.json());if(Array.isArray(availability.providers)){document.querySelectorAll('[data-provider]').forEach(b=>{b.disabled=!availability.providers.includes(b.dataset.provider)});if(!availability.ready)$('gateMessage').textContent=availability.reason==='oauth_setup_required'?'O espaço está instalado. Falta o administrador habilitar Google ou GitHub no Supabase para liberar os acessos.':'Não foi possível verificar o login agora. Atualize a página em alguns instantes.'}}catch{}document.querySelectorAll('[data-provider]').forEach(b=>b.onclick=()=>busy(b,async()=>{const {error}=await client.auth.signInWithOAuth({provider:b.dataset.provider,options:{redirectTo:location.origin+location.pathname}});if(error)throw error}));client.auth.onAuthStateChange((event,next)=>{if(event==='SIGNED_OUT')showSession(null);else if(event==='SIGNED_IN'||event==='INITIAL_SESSION'){setTimeout(()=>showSession(next),0)}else if(event==='TOKEN_REFRESHED'){session=next}});setTab();const {data,error}=await client.auth.getSession();if(error)throw error;showSession(data.session)}catch(e){$('gateMessage').textContent=e.message;toast(e.message,true)}})();
+let emailMode = 'login';
+let recovery = new URLSearchParams(location.hash.slice(1)).get('type') === 'recovery';
+
+function setEmailMode(mode) {
+  emailMode = mode;
+  const labels = {login:['Entrar com e-mail','Entrar'],signup:['Criar conta','Cadastrar'],reset:['Recuperar senha','Enviar link'],recover:['Nova senha','Salvar senha']};
+  [$('emailAuthTitle').textContent, $('emailSubmit').textContent] = labels[mode];
+  $('authEmailLabel').classList.toggle('hidden', mode === 'recover');
+  $('authEmail').required = mode !== 'recover';
+  $('authPasswordLabel').classList.toggle('hidden', mode === 'reset');
+  $('authPassword').required = mode !== 'reset';
+  $('authPassword').minLength = mode === 'login' ? 1 : 8;
+  $('authPassword').autocomplete = mode === 'login' ? 'current-password' : 'new-password';
+  $('authPassword').value = '';
+  $('emailActions').classList.toggle('hidden', mode === 'recover');
+  $('emailFeedback').textContent = '';
+}
+
+function bindEmailAuth(redirectTo) {
+  document.querySelectorAll('[data-email-mode]').forEach(button => {
+    button.onclick = () => setEmailMode(button.dataset.emailMode);
+  });
+  $('emailAuth').onsubmit = event => {
+    event.preventDefault();
+    busy(event.submitter, async () => {
+      const mode = emailMode;
+      const email = $('authEmail').value.trim();
+      const password = $('authPassword').value;
+      $('authPassword').value = '';
+      $('emailFeedback').textContent = '';
+      let result;
+      if (mode === 'signup') {
+        result = await client.auth.signUp({email, password, options: {emailRedirectTo: redirectTo}});
+      } else if (mode === 'reset') {
+        result = await client.auth.resetPasswordForEmail(email, {redirectTo});
+      } else if (mode === 'recover') {
+        if (!recovery) return;
+        result = await client.auth.updateUser({password});
+      } else {
+        result = await client.auth.signInWithPassword({email, password});
+      }
+      if (result.error) {
+        const messages = {
+          invalid_credentials: 'E-mail ou senha inválidos.',
+          email_not_confirmed: 'Confirme seu e-mail antes de entrar.',
+          weak_password: 'Escolha uma senha mais forte.',
+          over_email_send_rate_limit: 'Aguarde antes de solicitar outro e-mail.',
+          email_address_not_authorized: 'O envio de e-mails ainda está restrito neste ambiente.',
+        };
+        $('emailFeedback').textContent = messages[result.error.code] || 'Não foi possível concluir. Tente novamente em instantes.';
+        return;
+      }
+      if (mode === 'recover') {
+        recovery = false;
+        setEmailMode('login');
+        const {data} = await client.auth.getSession();
+        showSession(data.session);
+        toast('Senha atualizada.');
+      } else if (mode === 'signup' && !result.data.session) {
+        $('emailFeedback').textContent = 'Confira sua caixa de entrada para confirmar a conta.';
+      } else if (mode === 'reset') {
+        $('emailFeedback').textContent = 'Se houver uma conta para esse endereço, você receberá um link.';
+      }
+    });
+  };
+}
+
+(async () => {
+  try {
+    const response = await fetch('/api/config');
+    if (!response.ok) throw Error('Não foi possível carregar a configuração.');
+    const config = await response.json();
+    if (!config.configured || !window.supabase) throw Error('Login indisponível neste ambiente.');
+    const redirectTo = location.origin + location.pathname;
+    client = window.supabase.createClient(config.supabase_url, config.supabase_anon_key, {
+      auth: {persistSession: true, autoRefreshToken: true, detectSessionInUrl: true},
+    });
+    $('gateMessage').textContent = 'Entre para acessar seu espaço pessoal.';
+    bindEmailAuth(redirectTo);
+    $('emailAuth').classList.remove('hidden');
+    const applySession = next => {
+      if (recovery && next) {
+        showSession(null);
+        setEmailMode('recover');
+        $('gateMessage').textContent = 'Escolha sua nova senha.';
+        $('authButtons').classList.add('hidden');
+      } else {
+        recovery = false;
+        showSession(next);
+      }
+    };
+    client.auth.onAuthStateChange((event, next) => {
+      if (event === 'PASSWORD_RECOVERY') recovery = true;
+      if (['PASSWORD_RECOVERY', 'SIGNED_IN', 'INITIAL_SESSION', 'SIGNED_OUT'].includes(event)) {
+        setTimeout(() => applySession(next), 0);
+      } else if (event === 'TOKEN_REFRESHED' && !recovery) {
+        session = next;
+      }
+    });
+    setTab();
+    const {data, error} = await client.auth.getSession();
+    if (error) throw error;
+    applySession(data.session);
+    const availability = await fetch('/api/auth/providers').then(r => r.json()).catch(() => null);
+    if (!availability?.ready) return;
+    document.querySelectorAll('[data-provider]').forEach(button => {
+      button.disabled = !availability.providers.includes(button.dataset.provider);
+      button.onclick = () => busy(button, async () => {
+        const {error} = await client.auth.signInWithOAuth({provider: button.dataset.provider, options: {redirectTo}});
+        if (error) throw Error('Não foi possível iniciar o login social.');
+      });
+    });
+    if (!recovery) $('authButtons').classList.remove('hidden');
+  } catch {
+    $('gateMessage').textContent = 'Não foi possível iniciar o login. Atualize a página e tente novamente.';
+  }
+})();
 
 
 function renderData(){
