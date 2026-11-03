@@ -5,6 +5,7 @@ from fastapi.responses import HTMLResponse,StreamingResponse,Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from app.db import init_db,connect
+from app.version import VERSION
 from app.config import UPLOAD_DIR,MAX_PDF_BYTES
 from app.models import *
 from app.services.scoring import analyze
@@ -19,7 +20,7 @@ from app.services.email_import import parse_eml
 from app.services.agent_orchestrator import route,estimate_tokens
 from app.services.security import set_secret,get_secret,redact
 from app.services.event_tracker import track,track_stage,set_attribution,learning_snapshot
-app=FastAPI(title='Career OS',version='0.5.0');app.add_middleware(CORSMiddleware,allow_origin_regex=r'chrome-extension://.*',allow_methods=['*'],allow_headers=['*']);app.mount('/static',StaticFiles(directory='app/static'),name='static')
+app=FastAPI(title='Career OS',version=VERSION);app.add_middleware(CORSMiddleware,allow_origin_regex=r'chrome-extension://.*',allow_methods=['*'],allow_headers=['*']);app.mount('/static',StaticFiles(directory='app/static'),name='static')
 @app.on_event('startup')
 def startup():init_db()
 def profile(c):
@@ -37,7 +38,7 @@ def add_job(c,d):
 @app.get('/',response_class=HTMLResponse)
 def home():return Path('app/static/index.html').read_text(encoding='utf-8')
 @app.get('/api/health')
-def health():return {'status':'ok','version':'0.6.0'}
+def health():return {'status':'ok','version':VERSION}
 @app.get('/api/profile')
 def get_profile():
  with connect() as c:return profile(c)

@@ -1,4 +1,5 @@
 import sqlite3
+from app.migrations import migrate
 from contextlib import contextmanager
 from app.config import DB_PATH
 SCHEMA='''
@@ -30,6 +31,6 @@ def connect():
  finally:c.close()
 def init_db():
  with connect() as c:
-  c.executescript(SCHEMA);c.execute("INSERT OR IGNORE INTO settings VALUES('ai_provider','heuristic')")
+  migrate(c,SCHEMA);c.execute("INSERT OR IGNORE INTO settings VALUES('ai_provider','heuristic')")
   from app.services.assistant import seed_answers
   seed_answers(c)

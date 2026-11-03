@@ -1,4 +1,4 @@
-# Career OS v0.3
+# Career OS v0.6
 
 Aplicativo local para capturar, analisar e acompanhar vagas de estágio em tecnologia.
 
@@ -51,7 +51,7 @@ build_windows.bat
 Saída esperada:
 
 ```text
-installer\CareerOS-Setup-0.4.0.exe
+installer\CareerOS-Setup-0.6.0.exe
 ```
 
 Alternativamente, publique o projeto no GitHub e execute manualmente o workflow **Windows Installer**. O artefato produzido contém o instalador.
@@ -71,3 +71,8 @@ Em **Análise de currículo**, envie PDF ou DOCX e opcionalmente escolha uma vag
 - pontos fortes;
 - melhorias;
 - palavras-chave presentes e ausentes.
+
+## Continuidade e backup
+
+Versão centralizada, migrações iniciais de banco e transferência offline do workspace:
+[guia de backup/restauração](docs/WORKSPACE_TRANSFER.md).

@@ -1,5 +1,7 @@
 # Career OS: Master Plan e handoff completo
 
+> Atualização de 03/11/2026: veja [WORKSPACE_TRANSFER.md](WORKSPACE_TRANSFER.md) para a versão centralizada, migrações iniciais, transferência offline e 24 testes atuais. Os itens históricos abaixo descrevem a base anterior.
+
 > Documento de continuidade para outra IA ou outra máquina. Este arquivo consolida contexto, decisões, evolução, arquitetura, funcionalidades, design, restrições, preferências do usuário e próximos passos.
 
 ## 1. Contexto humano e objetivo

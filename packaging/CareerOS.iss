@@ -1,5 +1,7 @@
 #define MyAppName "Career OS"
-#define MyAppVersion "0.6.0"
+#ifndef MyAppVersion
+  #error Supply MyAppVersion from app/version.py using build_windows.bat
+#endif
 #define MyAppExeName "CareerOS.exe"
 [Setup]
 AppId={{A76049CB-A3F5-4BDE-A031-CAREEROS0400}
@@ -8,7 +10,7 @@ AppVersion={#MyAppVersion}
 DefaultDirName={autopf}\Career OS
 DefaultGroupName=Career OS
 OutputDir=..\installer
-OutputBaseFilename=CareerOS-Setup-0.6.0
+OutputBaseFilename=CareerOS-Setup-{#MyAppVersion}
 Compression=lzma2
 SolidCompression=yes
 PrivilegesRequired=lowest
