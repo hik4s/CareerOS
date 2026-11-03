@@ -1,4 +1,5 @@
 from uuid import uuid4
+import re
 import httpx
 from fastapi import Depends, HTTPException
 from .auth import User, require_user
@@ -24,6 +25,27 @@ class SupabaseStore:
 
     async def rows(self, table, **filters):
         return await self.request('GET', '/rest/v1/' + table, params={'user_id': 'eq.' + self.user.id, **filters})
+
+    async def resume_bytes(self, path, max_bytes=5 * 1024 * 1024):
+        pattern = re.escape(self.user.id) + r'/[0-9a-f-]{36}\.(pdf|docx)'
+        if not isinstance(path, str) or not re.fullmatch(pattern, path):
+            raise HTTPException(502, 'Referência de currículo inválida para esta conta.')
+        if not self.config.configured:
+            raise HTTPException(503, 'Cloud storage is not configured')
+        try:
+            async with httpx.AsyncClient(timeout=30, follow_redirects=False) as client:
+                async with client.stream('GET', self.config.supabase_url + '/storage/v1/object/authenticated/career-resumes/' + path,
+                        headers={'apikey': self.config.supabase_anon_key, 'Authorization': 'Bearer ' + self.user.token}) as response:
+                    if response.status_code != 200:
+                        raise HTTPException(502, 'Não foi possível obter um currículo para a exportação.')
+                    content = bytearray()
+                    async for chunk in response.aiter_bytes(256 * 1024):
+                        if len(content) + len(chunk) > max_bytes:
+                            raise HTTPException(413, 'Currículo excede o limite de exportação.')
+                        content.extend(chunk)
+                    return bytes(content)
+        except httpx.HTTPError:
+            raise HTTPException(502, 'Storage indisponível; nenhum backup parcial será entregue.') from None
 
     async def insert(self, table, data):
         payload = {**data, 'user_id': self.user.id}

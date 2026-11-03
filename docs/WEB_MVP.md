@@ -91,3 +91,10 @@ conta Render. Comece usando a branch web MVP e mantenha a versão local separada
 O processamento de PDF/DOCX roda em processo separado com timeout de 15 segundos.
 No Linux, memória e CPU do parser são limitadas; PDFs acima de 30 páginas são
 recusados, assim como DOCX com conteúdo expandido acima de 25 MiB.
+
+
+## Exportação da conta (1.1.0)
+
+Em **Meus dados**, baixe o ZIP autenticado com registros e currículos privados.
+Inclui manifesto SHA256. Limites e cuidados: [RELEASE_1.1.0.md](RELEASE_1.1.0.md).
+A exportação é manual; não há importação/restauração cloud nesta versão.
