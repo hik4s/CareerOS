@@ -473,3 +473,16 @@ Publicação final confirmada: deploy dep-dbl2l88ae00c73cdrotg está LIVE.
 HTTP real /api/health: 200, configured true, version 1.1.1. /api/profile
 sem token: 401. Ambos retornaram no-store, no-referrer e nosniff.
 OAuth real e fluxos autenticados com usuários continuam sem homologação.
+
+## 20. Nova marca JobsFinder
+
+O usuário pediu a troca de CareerOS para JobsFinder. A marca foi aplicada ao
+painel cloud, extensão, downloads e documentação. O formato de exportação
+`careeros-cloud-export` continua compatível com os arquivos anteriores.
+Os 84 testes locais passaram.
+
+O novo serviço Render gratuito `srv-dbl2rom7bikc73883l50` usa a mesma branch
+publicada e o mesmo projeto Supabase. O Render atribuiu
+https://jobsfinder-b5a9.onrender.com e as variáveis APP_URL e ALLOWED_ORIGINS
+foram ajustadas para essa origem. O serviço anterior segue disponível.
+Google e GitHub ainda dependem da configuração OAuth e dos redirects no Supabase.
