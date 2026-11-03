@@ -1,23 +1,38 @@
 name: Windows Installer
-on: [workflow_dispatch]
+on:
+  workflow_dispatch:
+  push:
+    tags: ['v*']
+permissions:
+  contents: write
 jobs:
   build:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
-        with: {python-version: '3.12'}
-      - run: pip install -r requirements.txt
-      - run: pytest -q
-      - run: pyinstaller --clean --noconfirm packaging/CareerOS.spec
-      - run: choco install innosetup -y
-      - shell: pwsh
-        run: |
-          $careerVersion = python -c "from app.version import VERSION; print(VERSION)"
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" "/DMyAppVersion=$careerVersion" packaging\CareerOS.iss
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+        with:
+          python-version: '3.12'
+          architecture: x64
+          cache: pip
+      - run: python -m pip install -r requirements.txt
+      - run: python -m pytest -q
+      - run: choco install innosetup -y --no-progress
+      - run: python scripts/build_windows.py
       - uses: actions/upload-artifact@v4
         with:
           name: CareerOS-Windows-Installer
-          path: installer/*.exe
+          path: |
+            installer/*.exe
+            installer/*.exe.sha256
+          if-no-files-found: error
+      # Publish only after a human downloads and smoke-tests the draft assets.
+      - name: Create draft release
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $assets = @(Get-ChildItem installer/*.exe, installer/*.exe.sha256 | ForEach-Object { $_.FullName })
+          gh release create "${{ github.ref_name }}" @assets --draft --verify-tag --title "Career OS ${{ github.ref_name }}" --notes "Windows installer. Validate installation, upgrade, downgrade rejection and WebView2 bootstrap on Windows before publishing this draft."
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
