@@ -269,6 +269,7 @@ async def extension_download():
 if STATIC.exists():
     app.mount('/static', StaticFiles(directory=STATIC), name='static')
 
+@app.get('/auth', include_in_schema=False)
 @app.get('/')
 async def home():
     if (STATIC / 'index.html').exists():
