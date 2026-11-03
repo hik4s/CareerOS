@@ -460,3 +460,16 @@ A revisão detectou que respostas 500 inesperadas contornam o middleware de
 cabeçalhos. Corrigido com handler genérico de erro sanitizado e os mesmos
 cabeçalhos de privacidade. Regressão reproduzida antes do ajuste; suíte final
 84 testes aprovados (11 novos), três avisos de depreciação. PR #4.
+
+Integração confirmada: PR https://github.com/hik4s/CareerOS/pull/4, merge
+301bcbc9f4d9fb5493dc9ba9829546846fc9db95 na branch de publicação. Main preservada.
+Checks GitHub 41695862191 e 41695873308 concluíram success no commit final
+1f8277fd3ea37f21c790fe1de5bb5a118d20b162. Revisão independente sem bloqueios.
+Render novamente não iniciou deploy após merge; solicitado um único deploy
+manual dep-dbl2l88ae00c73cdrotg, inicialmente build_in_progress. Confirmar live
+e /api/health version 1.1.1 antes de tratar como publicado.
+
+Publicação final confirmada: deploy dep-dbl2l88ae00c73cdrotg está LIVE.
+HTTP real /api/health: 200, configured true, version 1.1.1. /api/profile
+sem token: 401. Ambos retornaram no-store, no-referrer e nosniff.
+OAuth real e fluxos autenticados com usuários continuam sem homologação.
