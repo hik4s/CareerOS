@@ -1,6 +1,6 @@
 services:
   - type: web
-    name: careeros-cloud
+    name: jobsfinder
     runtime: python
     plan: free
     buildCommand: pip install -r requirements-cloud.txt

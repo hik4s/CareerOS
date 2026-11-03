@@ -1,4 +1,4 @@
-# Career OS v0.6
+# JobsFinder
 
 Aplicativo local para capturar, analisar e acompanhar vagas de estágio em tecnologia.
 

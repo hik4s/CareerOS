@@ -44,7 +44,7 @@ async def all_rows(store, table, started, budget=None, owner_id=None):
 
 
 async def build_export(store, directory):
-    target = Path(directory) / 'CareerOS-workspace.zip'
+    target = Path(directory) / 'JobsFinder-workspace.zip'
     started = datetime.now(timezone.utc).isoformat()
     budget = [0]
     try:
@@ -92,7 +92,7 @@ async def export_account(store: SupabaseStore = Depends(get_store)):
         directory = Path(tempfile.mkdtemp(prefix='careeros-export-'))
         try:
             path = await build_export(store, directory)
-            return FileResponse(path, media_type='application/zip', filename='CareerOS-workspace.zip',
+            return FileResponse(path, media_type='application/zip', filename='JobsFinder-workspace.zip',
                                 headers={'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff'},
                                 background=BackgroundTask(shutil.rmtree, directory))
         except BaseException:

@@ -64,7 +64,7 @@ def test_export_rejects_foreign_metadata_even_if_backend_misconfigured(tmp_path)
     with pytest.raises(HTTPException) as error:
         asyncio.run(build_export(Foreign(), tmp_path))
     assert error.value.status_code == 502
-    assert not (tmp_path / 'CareerOS-workspace.zip').exists()
+    assert not (tmp_path / 'JobsFinder-workspace.zip').exists()
 
 
 def test_pagination_exports_more_than_first_page():
@@ -90,7 +90,7 @@ def test_oversized_export_is_cleaned_up(monkeypatch, tmp_path):
     with pytest.raises(HTTPException) as error:
         asyncio.run(build_export(Store(), tmp_path))
     assert error.value.status_code == 413
-    assert not (tmp_path / 'CareerOS-workspace.zip').exists()
+    assert not (tmp_path / 'JobsFinder-workspace.zip').exists()
 
 
 def test_file_failure_does_not_return_incomplete_zip(tmp_path):
@@ -99,7 +99,7 @@ def test_file_failure_does_not_return_incomplete_zip(tmp_path):
             raise HTTPException(502, 'Storage indisponível')
     with pytest.raises(HTTPException):
         asyncio.run(build_export(Failing(), tmp_path))
-    assert not (tmp_path / 'CareerOS-workspace.zip').exists()
+    assert not (tmp_path / 'JobsFinder-workspace.zip').exists()
 
 
 def test_export_route_requires_authentication(monkeypatch):

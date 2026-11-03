@@ -1,8 +1,8 @@
-# CareerOS Cloud — Chrome / Edge (Manifest V3)
+# JobsFinder Cloud — Chrome / Edge (Manifest V3)
 
-1. No painel CareerOS autenticado, baixe `/api/extension.zip` e extraia o ZIP.
+1. No painel JobsFinder autenticado, baixe `/api/extension.zip` e extraia o ZIP.
 2. Abra `chrome://extensions` ou `edge://extensions`, ative **Modo do desenvolvedor**, escolha **Carregar sem compactação** e selecione a pasta que contém `manifest.json`.
-3. No painel, copie o token para extensão. No popup, informe a origem HTTPS do seu CareerOS, cole o token e clique **Salvar origem e conectar**. Aceite acesso somente à origem informada.
+3. No painel, copie o token para extensão. No popup, informe a origem HTTPS do seu JobsFinder, cole o token e clique **Salvar origem e conectar**. Aceite acesso somente à origem informada.
 4. Abra os detalhes de uma vaga e clique **Capturar vaga atual**. Revise o conteúdo salvo no painel.
 
 HTTP é permitido somente para desenvolvimento em `localhost`, `127.0.0.1` ou `[::1]`. Não informe caminhos no endereço. A extensão pede acesso opcional ao endereço configurado; a vaga aberta é lida apenas após seu clique, com `activeTab`. Não há permissão obrigatória para todos os sites.

@@ -22,7 +22,7 @@ from .config import settings
 from .store import SupabaseStore, get_store
 from .version import VERSION
 
-app = FastAPI(title='CareerOS Cloud', version=VERSION)
+app = FastAPI(title='JobsFinder Cloud', version=VERSION)
 _parse_gate = asyncio.Semaphore(1)
 app.add_middleware(CORSMiddleware, allow_origins=list(settings().cors_origins), allow_origin_regex=r'chrome-extension://[a-p]{32}', allow_credentials=False, allow_methods=['GET', 'POST', 'PUT', 'PATCH', 'DELETE'], allow_headers=['Authorization', 'Content-Type'])
 
@@ -264,7 +264,7 @@ async def extension_download():
             if file.is_file():
                 archive.writestr(file.name, file.read_bytes())
     return Response(output.getvalue(), media_type='application/zip',
-                    headers={'Content-Disposition': 'attachment; filename="CareerOS-Extensao.zip"'})
+                    headers={'Content-Disposition': 'attachment; filename="JobsFinder-Extensao.zip"'})
 
 if STATIC.exists():
     app.mount('/static', StaticFiles(directory=STATIC), name='static')
@@ -273,4 +273,4 @@ if STATIC.exists():
 async def home():
     if (STATIC / 'index.html').exists():
         return FileResponse(STATIC / 'index.html')
-    return {'name': 'CareerOS Cloud', 'configured': settings().configured}
+    return {'name': 'JobsFinder Cloud', 'configured': settings().configured}
