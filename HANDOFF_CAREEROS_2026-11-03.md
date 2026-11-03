@@ -519,3 +519,12 @@ duas contas e restauração do ZIP exportado.
 Último deploy confirmado antes do encerramento: dep-dbl4bl8ae00c73bp1lmg.
 A redução para 8 caracteres foi solicitada apenas para push na main.
 Confira o commit ativo no Render antes de afirmar que a redução está online.
+
+## 21. Busca de vagas na versão web
+
+A aba Buscar vagas foi implementada. A cobertura, os filtros e a diferença
+entre resultados integrados e links de portais estão em docs/BUSCA_DE_VAGAS.md.
+A rota autenticada /api/discovery/jobs agrega quadros públicos Greenhouse de
+Grupo QuintoAndar e Brex e o feed Arbeitnow. LinkedIn, Gupy, InfoJobs, Indeed
+e demais portais aparecem como links externos. Nenhuma chave de terceiros
+foi configurada. A consulta real de teste encontrou vagas em São Paulo.
