@@ -473,3 +473,49 @@ Publicação final confirmada: deploy dep-dbl2l88ae00c73cdrotg está LIVE.
 HTTP real /api/health: 200, configured true, version 1.1.1. /api/profile
 sem token: 401. Ambos retornaram no-store, no-referrer e nosniff.
 OAuth real e fluxos autenticados com usuários continuam sem homologação.
+
+## 20. Estado no encerramento de 03/11/2026
+
+O nome público é CareerOS. A branch de produção passou a ser main no
+repositório hik4s/CareerOS. Serviço Render gratuito srv-dbkv4rajnfac73a26hig,
+https://careeros-v1.onrender.com. O nome sem sufixo não foi atribuído pelo
+Render. Um serviço separado jobsfinder-b5a9 foi criado durante a avaliação de
+nome e não é a produção. Não criar outro serviço para continuar.
+
+O Supabase jylrurstgybvzgsikiiv é o mesmo projeto, com os mesmos dados e RLS.
+O usuário habilitou Google, GitHub e SMTP. A API confirmou os dois provedores.
+O usuário testou cadastro por e-mail, recebimento na caixa de entrada,
+confirmação e acesso ao app. Segredos ficam nos painéis, fora do Git.
+A confirmação e recuperação voltam para a raiz da origem pública.
+
+A entrada em /auth usa React. Fonte em frontend/auth, bundle estático
+app/cloud/static/auth.bundle.js. Para alterar, execute npm ci e npm run build
+em frontend/auth e inclua fonte e bundle no mesmo commit. O app usa os
+callbacks existentes e apresenta loading e boas-vindas após confirmar a
+identidade no Supabase. O usuário aprovou a identidade visual e a animação.
+Guia em docs/IDENTIDADE_VISUAL.md e SVGs em docs/brand. O HTML de confirmação
+com a identidade foi entregue na conversa para edição no Supabase.
+
+Meu perfil inclui foto JPEG reduzida a 160 px, contato, resumo, checklist
+de preenchimento e análise heurística das seções e contatos de currículos.
+A exclusão exige digitar EXCLUIR e usa a função Supabase delete-account.
+A função valida o usuário, remove arquivos da pasta da conta e exclui o
+usuário, com cascata no banco. Requisição sem sessão retorna 401. A exclusão
+com uma conta descartável ainda não foi executada. O usuário pode exportar
+seus dados em Meus dados antes de excluir a conta.
+
+A senha de cadastro e redefinição exige confirmação e no mínimo 8 caracteres
+no formulário, com maiúscula, minúscula, número e símbolo. O limite foi
+reduzido de 12 a 8 a pedido do usuário no encerramento. A mesma política ainda
+precisa ser alinhada no Supabase Auth para chamadas diretas à API. O login de
+contas existentes continua aceitando a senha já cadastrada.
+
+A busca web filtra as vagas já salvas. É possível cadastrar uma vaga
+manualmente ou capturá-la com a extensão. A busca de vagas novas em fontes
+externas ainda não existe na versão web. Próximos itens possíveis são essa
+busca, homologação da extensão, recuperação real de senha, isolamento entre
+duas contas e restauração do ZIP exportado.
+
+Último deploy confirmado antes do encerramento: dep-dbl4bl8ae00c73bp1lmg.
+A redução para 8 caracteres foi solicitada apenas para push na main.
+Confira o commit ativo no Render antes de afirmar que a redução está online.

@@ -30,7 +30,7 @@ function Auth({ client, redirectTo, bridge, startupError }) {
 
   const newPassword = mode === 'signup' || mode === 'recover';
   const passwordRules = [
-    ['12 caracteres ou mais', password.length >= 12],
+    ['8 caracteres ou mais', password.length >= 8],
     ['Uma maiúscula e uma minúscula', /[A-Z]/.test(password) && /[a-z]/.test(password)],
     ['Um número', /[0-9]/.test(password)],
     ['Um símbolo', /[^A-Za-z0-9\s]/.test(password)],
@@ -125,7 +125,7 @@ function Auth({ client, redirectTo, bridge, startupError }) {
               {mode !== 'reset' && (
                 <label htmlFor="auth-password">Senha
                   <span className="auth-password">
-                    <input id="auth-password" type={visible ? 'text' : 'password'} autoComplete={mode === 'login' ? 'current-password' : 'new-password'} minLength={newPassword ? 12 : undefined} maxLength={newPassword ? 72 : undefined} value={password} onChange={e => setPassword(e.target.value)} required />
+                    <input id="auth-password" type={visible ? 'text' : 'password'} autoComplete={mode === 'login' ? 'current-password' : 'new-password'} minLength={newPassword ? 8 : undefined} maxLength={newPassword ? 72 : undefined} value={password} onChange={e => setPassword(e.target.value)} required />
                     <button type="button" className="auth-link" aria-pressed={visible} onClick={() => setVisible(!visible)}>{visible ? 'Ocultar' : 'Mostrar'}</button>
                   </span>
                 </label>
