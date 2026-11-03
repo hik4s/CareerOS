@@ -5,7 +5,7 @@ from app.cloud.main import app
 
 def test_release_version():
     with TestClient(app) as client:
-        assert client.get('/api/health').json()['version'] == '1.0.0'
+        assert client.get('/api/health').json()['version'] == '1.1.0'
 
 
 def test_detects_enabled_oauth_without_exposing_settings(monkeypatch):

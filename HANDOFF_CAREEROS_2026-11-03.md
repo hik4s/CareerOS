@@ -346,3 +346,56 @@ de credenciais. A autenticação permanece não confirmada. A autorização gera
 não permite resolver o CAPTCHA sem confirmação específica no momento. O usuário
 pode concluir a interação na aba entregue para destravar a configuração OAuth.
 Não recomeçar a criação de projeto/serviço, pois ambos já existem e estão ativos.
+
+
+## 17. Continuação: versão Cloud 1.1.0 e exportação manual da conta
+
+Em 03/11/2026 o usuário pediu continuar implementando. A aba Supabase foi
+reaberta e ainda exibia hCaptcha, com login não confirmado. O agente não
+resolveu o desafio nem presumiu autenticação. Não repetir a criação de projeto
+ou serviço e não enfraquecer Auth para contornar essa pendência.
+
+Foi implementada a exportação manual pelo painel, independente da liberação
+OAuth. Versão cloud: 1.1.0 (extensão continua 1.0.0, sem alteração de formato).
+Branch de desenvolvimento: codex/cloud-account-export-2026-11-03. Integração
+prevista na branch já servida codex/v1-release-2026-11-03 após aprovação do CI.
+Consultar os HEADs remotos e o health do Render para confirmar a publicação;
+não inferir deploy somente pela existência deste documento.
+
+Novos arquivos: app/cloud/export.py, tests/test_cloud_export.py e
+ docs/RELEASE_1.1.0.md. Alterados store.py (download binário privado e limitado),
+main.py (router), frontend (aba Meus dados, download ZIP), versão e teste de release.
+
+GET /api/workspace/export.zip requer sessão autenticada. O ZIP contém:
+- workspace.json com perfil, todas as vagas, histórico de IA e metadados de currículos;
+- resumes/<UUID>.pdf|docx com os arquivos privados originais;
+- manifest.json com hashes SHA256 dos arquivos exportados.
+
+Cada consulta conserva filtro de owner e Bearer, com validação do dono a cada
+página. Caminhos de arquivos têm prefixo UUID da conta; não são usados nomes
+originais como caminhos do ZIP. Não exporta chaves de IA, tokens, senhas Auth,
+service_role nem dados de outra conta. UI confere dono antes de iniciar e depois
+do download para descartar resposta que chegue após troca de conta.
+
+Limites: 64 MiB total descompactado, 10.000 registros por categoria, arquivos
+individuais até 5 MiB, construção de um ZIP por vez no processo. Paginação até
+página vazia evita truncamento quando a API impõe páginas menores. Qualquer
+falha de Storage cancela o ZIP inteiro, sem omissão silenciosa. Tempfiles
+removidos após resposta concluída ou erro. Não constitui snapshot transacional,
+backup automático, backup administrativo de todo Supabase nem restauração.
+O usuário deve guardar o ZIP, que contém dados pessoais sem criptografia.
+
+Validação desta continuação: 73 testes locais Python aprovados, nove de exportação,
+Node syntax check e git diff --check aprovados. Testes cobrem dados e arquivos no
+ZIP, integridade, rejeição de owner estrangeiro, paginação inclusive com teto
+menor no servidor, limite de tamanho, limpeza de temporários e autenticação.
+O teste de defesa por proprietário inicialmente detectou uma leitura que só
+validava depois de acumular todas as páginas; a validação foi movida para cada
+página e a suíte passou. Ainda não houve teste de exportação com OAuth real,
+pois o login continua bloqueado na verificação de segurança.
+
+Para testar manualmente após OAuth: entrar, salvar perfil e vaga, enviar currículo,
+gerar uma análise por regras, abrir Meus dados e baixar o ZIP; verificar registros,
+arquivo e hashes. Outra conta não pode obter a mesma exportação ou currículo.
+A conta continua intacta após exportar. Próximas prioridades permanecem OAuth,
+homologação real e backup/restauração cloud com desenho específico.

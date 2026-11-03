@@ -234,6 +234,8 @@ async def delete_resume(id: UUID, store: SupabaseStore = Depends(get_store)):
 STATIC = Path(__file__).resolve().parent / 'static'
 from .ai import router as ai_router
 app.include_router(ai_router)
+from .export import router as export_router
+app.include_router(export_router)
 
 @app.get('/api/extension.zip')
 async def extension_download():
