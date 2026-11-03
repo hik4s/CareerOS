@@ -29,9 +29,30 @@ function renderAI(){const external=aiDraft.provider!=='heuristic';$('view').inne
 function showEstimate(){if(!estimate)return;const cost=estimate.estimated_max_cost_usd;const external=estimatePayload.provider!=='heuristic';$('estimateArea').innerHTML=`<div class="consent-area notice ${external?'warning':''}"><strong>Estimativa antes de gerar</strong><p>Entrada aproximada: ${esc(estimate.estimated_input_tokens)} tokens · saída limitada a ${esc(estimate.max_output_tokens)} tokens.<br>${cost==null?'Custo não calculado: informe os preços para uma estimativa.':`Custo estimado: até US$ ${Number(cost).toFixed(6)} com os preços informados.`}${estimate.cached?'<br>Resultado disponível em cache.':''}</p><p>${esc(estimate.notice||'Contagens e custos são estimativas; a cobrança real é definida pelo provedor.')}</p><label class="check"><input type="checkbox" id="aiConsent"> <span>${external?`Autorizo enviar meu perfil, a vaga selecionada, o currículo selecionado (texto extraído limitado) e os textos acima ao provedor ${esc(estimatePayload.provider)} para esta execução. Entendo que podem existir cobranças.`:'Confirmo que o contexto selecionado pode ser usado para gerar este rascunho local.'}</span></label><button id="generateAI" disabled>2. Gerar rascunho</button></div>`;$('aiConsent').onchange=()=>{$('generateAI').disabled=!$('aiConsent').checked};$('generateAI').onclick=e=>busy(e.currentTarget,async()=>{if(!estimatePayload||!$('aiConsent').checked)throw Error('Faça uma nova estimativa e confirme o envio.');if(external&&!apiKey)throw Error('Guarde sua chave de API nesta sessão antes de gerar.');const owner=session?.user?.id;const data=await api('/api/ai/run',{method:'POST',body:JSON.stringify({...estimatePayload,...(external?{api_key:apiKey}:{})})});if(!session||session.user.id!==owner)return;const nextResult=typeof data.result==='string'?data.result:JSON.stringify(data.result,null,2);const nextHistory=await api('/api/ai/history');if(!session||session.user.id!==owner)return;aiResult=nextResult;estimate=null;estimatePayload=null;history=nextHistory;if(tab==='ai')renderAI();toast(data.cached?'Rascunho recuperado do cache.':'Rascunho gerado. Revise antes de usar.')})}
 function renderCapture(){$('view').innerHTML=`<div class="hero"><span class="eyebrow">LEVE SEU RADAR COM VOCÊ</span><h2>Encontrou uma boa vaga?<br>Guarde no CareerOS.</h2><p>Capture oportunidades durante sua pesquisa e organize as próximas etapas no seu espaço pessoal.</p><a class="button" href="/api/extension.zip" download>↓ Baixar extensão Chrome</a></div><div class="card"><h2>Instalar e conectar</h2><div class="steps" style="margin-top:24px"><div class="step"><span class="step-number">01</span><div><h3>Extraia o arquivo baixado</h3><p>Mantenha a pasta da extensão no seu computador.</p></div></div><div class="step"><span class="step-number">02</span><div><h3>Abra chrome://extensions</h3><p>Ative o modo de desenvolvedor, escolha “Carregar sem compactação” e selecione a pasta.</p></div></div><div class="step"><span class="step-number">03</span><div><h3>Conecte à sua conta</h3><p>Informe na extensão o endereço deste site: <strong>${esc(location.origin)}</strong>. Copie abaixo seu token de sessão e cole no campo indicado na extensão.</p></div></div></div><div class="notice warning" style="margin-top:24px">O token concede acesso à sua conta. Mantenha-o privado e cole somente na extensão CareerOS instalada por você. Ele expira; copie um novo token quando precisar reconectar. A extensão mantém o token apenas durante a sessão do navegador.</div><button id="copyToken" class="secondary">Copiar token da sessão</button><p class="fine">Abra uma página de vaga, revise os campos capturados e salve. Você também pode cadastrar vagas manualmente.</p></div>`;$('copyToken').onclick=e=>busy(e.currentTarget,async()=>{const {data,error}=await client.auth.getSession();if(error||!data.session)throw Error('Sessão indisponível. Entre novamente.');await navigator.clipboard.writeText(data.session.access_token);toast('Token copiado. Cole somente na extensão CareerOS.')})}
 $('closeJob').onclick=$('cancelJob').onclick=()=>$('jobDialog').close();$('jobForm').onsubmit=e=>{e.preventDefault();busy(e.submitter,async()=>{const data=Object.fromEntries(new FormData(e.target));const id=data.id;delete data.id;await api(id?`/api/jobs/${id}`:'/api/jobs',{method:id?'PATCH':'POST',body:JSON.stringify(data)});$('jobDialog').close();await reload();toast('Vaga salva.')})};$('logout').onclick=e=>busy(e.currentTarget,async()=>{apiKey='';aiResult='';const {error}=await client.auth.signOut();if(error)throw error;showSession(null);toast('Você saiu da conta.')});$('mobileLogout').onclick=()=>$('logout').click();window.addEventListener('hashchange',setTab);
-let recovery = new URLSearchParams(location.hash.slice(1)).get('type') === 'recovery';
+const authReturn = new URLSearchParams(location.hash.slice(1));
+let recovery = authReturn.get('type') === 'recovery';
+const signupReturn = authReturn.get('type') === 'signup' && authReturn.has('access_token');
+
+function finishAuthTransition() {
+  $('auth-transition').classList.add('hidden');
+}
+
+function showSignupWelcome(openDashboard) {
+  const transition = $('auth-transition');
+  transition.classList.add('auth-transition-success');
+  $('auth-transition-title').textContent = 'E-mail confirmado!';
+  $('auth-transition-description').textContent = 'Sua conta está pronta. Boas-vindas ao CareerOS.';
+  const button = $('auth-transition-continue');
+  button.classList.remove('hidden');
+  button.onclick = () => busy(button, openDashboard);
+  button.focus();
+}
 
 (async () => {
+  if (signupReturn) {
+    $('auth-transition-title').textContent = 'Confirmando seu e-mail';
+    $('auth-transition-description').textContent = 'Estamos verificando o link e preparando sua conta.';
+  }
   try {
     const response = await fetch('/api/config');
     if (!response.ok) throw Error('Não foi possível carregar a configuração.');
@@ -57,8 +78,11 @@ let recovery = new URLSearchParams(location.hash.slice(1)).get('type') === 'reco
       showSession(data.session);
       toast('Senha atualizada.');
     });
+    let initializing = true;
+    let awaitingWelcome = false;
     client.auth.onAuthStateChange((event, next) => {
       if (event === 'PASSWORD_RECOVERY') recovery = true;
+      if (initializing || awaitingWelcome) return;
       if (['PASSWORD_RECOVERY', 'SIGNED_IN', 'INITIAL_SESSION', 'SIGNED_OUT'].includes(event)) {
         setTimeout(() => applySession(next), 0);
       } else if (event === 'TOKEN_REFRESHED' && !recovery) {
@@ -68,10 +92,40 @@ let recovery = new URLSearchParams(location.hash.slice(1)).get('type') === 'reco
     setTab();
     const {data, error} = await client.auth.getSession();
     if (error) throw error;
-    applySession(data.session);
+    if (signupReturn && data.session && !recovery) {
+      const verified = await client.auth.getUser();
+      if (verified.error || verified.data.user?.id !== data.session.user.id ||
+          !verified.data.user.email_confirmed_at) {
+        throw Error('Não foi possível confirmar a conta.');
+      }
+      awaitingWelcome = true;
+      showSignupWelcome(async () => {
+        const {data: latest, error: sessionError} = await client.auth.getSession();
+        awaitingWelcome = false;
+        finishAuthTransition();
+        const next = !sessionError && latest.session?.user.id === verified.data.user.id
+          ? latest.session : null;
+        showSession(next);
+        if (next) {
+          $('pageTitle').setAttribute('tabindex', '-1');
+          $('pageTitle').focus();
+        } else {
+          toast('Sua sessão expirou. Entre novamente.', true);
+        }
+      });
+    } else {
+      finishAuthTransition();
+      applySession(data.session);
+      if (!data.session && (signupReturn || authReturn.has('error'))) {
+        toast('O link não pôde ser validado. Entre ou solicite um novo link.', true);
+      }
+    }
+    initializing = false;
     const availability = await fetch('/api/auth/providers').then(r => r.json()).catch(() => null);
     authView.providers(Array.isArray(availability?.providers) ? availability.providers : []);
   } catch {
+    finishAuthTransition();
+    $('gate').classList.remove('hidden');
     window.showCareerAuthError('Não foi possível iniciar o login. Atualize a página e tente novamente.');
   }
 })();
