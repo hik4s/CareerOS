@@ -160,3 +160,19 @@ def test_profile_rejects_untyped_or_unbounded_fields(configured, fake_authentica
     with TestClient(app) as c:
         assert c.put('/api/profile', json=data).status_code == 422
     assert fake_authenticated_store.data == {}
+
+
+def test_account_deletion_requires_session(configured):
+    with TestClient(app) as client:
+        assert client.post('/api/account/delete', json={'confirmation': 'EXCLUIR'}).status_code == 401
+
+
+def test_account_deletion_requires_exact_confirmation(configured, fake_authenticated_store):
+    with TestClient(app) as client:
+        assert client.post('/api/account/delete', json={'confirmation': 'SIM'}).status_code == 422
+
+
+def test_account_deletion_rejects_target_user(configured, fake_authenticated_store):
+    with TestClient(app) as client:
+        response = client.post('/api/account/delete', json={'confirmation': 'EXCLUIR', 'user_id': str(uuid4())})
+    assert response.status_code == 422

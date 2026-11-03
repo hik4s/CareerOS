@@ -6,7 +6,7 @@ const titles={overview:'Visão geral',jobs:'Minhas vagas',profile:'Meu perfil',r
 let client,session,profile={},jobs=[],resumes=[],history=[],apiKey='',tab='overview',estimate=null,estimatePayload=null,aiResult='',loadGeneration=0;
 let aiDraft={provider:'heuristic',model:'',task:'evaluate',job_id:'',resume_id:'',instruction:'',previous_text:'',max_output_tokens:512,input_price_per_million:'',output_price_per_million:''};
 function toast(message,error=false){$('toast').textContent=message;$('toast').className=error?'error':'';clearTimeout(toast.timer);toast.timer=setTimeout(()=>$('toast').textContent='',6000)}
-async function api(path,options={}){const {data,error}=await client.auth.getSession();if(error||!data.session)throw Error('Sua sessão expirou. Entre novamente.');const headers={Authorization:`Bearer ${data.session.access_token}`,...options.headers};if(options.body&&!(options.body instanceof FormData))headers['Content-Type']='application/json';const response=await fetch(path,{...options,headers});if(!response.ok){let body;try{body=await response.json()}catch{}throw Error(typeof body?.detail==='string'?body.detail:`Não foi possível concluir a operação (${response.status}).`)}return response.status===204?null:response.json()}
+async function api(path,options={},expectedOwner){const {data,error}=await client.auth.getSession();if(error||!data.session||(expectedOwner && data.session.user.id!==expectedOwner))throw Error('Sua sessão expirou. Entre novamente.');const headers={Authorization:`Bearer ${data.session.access_token}`,...options.headers};if(options.body&&!(options.body instanceof FormData))headers['Content-Type']='application/json';const response=await fetch(path,{...options,headers});if(!response.ok){let body;try{body=await response.json()}catch{}throw Error(typeof body?.detail==='string'?body.detail:`Não foi possível concluir a operação (${response.status}).`)}return response.status===204?null:response.json()}
 async function busy(button,fn){const original=button?.textContent;if(button){button.disabled=true;button.textContent='Aguarde…'}try{return await fn()}catch(e){toast(e.message||'Ocorreu um erro.',true)}finally{if(button){button.disabled=false;button.textContent=original}}}
 function empty(title,text){return `<div class="empty"><div class="empty-icon">◇</div><h3>${title}</h3><p>${text}</p></div>`}
 function safeURL(url){try{const u=new URL(url);return ['https:','http:'].includes(u.protocol)?u.href:''}catch{return ''}}
@@ -21,7 +21,97 @@ function jobCard(j){const a=j.analysis||{};const url=safeURL(j.url);return `<art
 function renderJobs(){ $('view').innerHTML=`<div class="section-head"><div><h2>Um lugar para cada oportunidade</h2><p>Salve, compare e acompanhe cada etapa.</p></div><button id="newJob">＋ Nova vaga</button></div><div class="toolbar"><input id="jobSearch" placeholder="Buscar por título ou empresa" aria-label="Buscar vagas"><select id="stageFilter" aria-label="Filtrar por etapa"><option value="">Todas as etapas</option>${Object.entries(stages).map(([v,l])=>`<option value="${v}">${l}</option>`).join('')}</select></div><div id="jobList"></div>`;const filter=()=>{const q=$('jobSearch').value.toLowerCase();const stage=$('stageFilter').value;const filtered=jobs.filter(j=>(!stage||j.status===stage)&&`${j.title} ${j.company}`.toLowerCase().includes(q));$('jobList').innerHTML=filtered.map(jobCard).join('')||empty('Nenhuma vaga por aqui',jobs.length?'Tente outro termo ou etapa.':'Adicione uma vaga manualmente ou use a extensão de captura.');bindJobActions()};$('jobSearch').oninput=filter;$('stageFilter').onchange=filter;$('newJob').onclick=()=>openJob();filter()}
 function bindJobActions(){document.querySelectorAll('[data-edit]').forEach(b=>b.onclick=()=>openJob(jobs.find(j=>j.id===b.dataset.edit)));document.querySelectorAll('[data-delete]').forEach(b=>b.onclick=()=>{if(confirm('Excluir esta vaga da sua conta?'))busy(b,async()=>{await api(`/api/jobs/${b.dataset.delete}`,{method:'DELETE'});await reload();toast('Vaga excluída.')})});document.querySelectorAll('[data-stage]').forEach(s=>s.onchange=()=>busy(null,async()=>{await api(`/api/jobs/${s.dataset.stage}`,{method:'PATCH',body:JSON.stringify({status:s.value})});await reload();toast('Etapa atualizada.')}));document.querySelectorAll('[data-analyze]').forEach(b=>b.onclick=()=>busy(b,async()=>{await api(`/api/jobs/${b.dataset.analyze}/analyze`,{method:'POST'});await reload();toast('Análise local atualizada.')}))}
 function openJob(j){$('jobForm').reset();for(const name of ['id','title','company','location','work_model','url','description'])$('jobForm').elements.namedItem(name).value=j?.[name]||'';$('jobDialogTitle').textContent=j?'Editar vaga':'Nova vaga';$('jobDialog').showModal()}
-function renderProfile(){const fields=[['full_name','Nome completo'],['email','E-mail'],['phone','Telefone'],['city','Cidade'],['course','Curso'],['term','Semestre / termo'],['graduation_date','Previsão de conclusão'],['linkedin','LinkedIn'],['github','GitHub']];$('view').innerHTML=`<div class="card"><div class="section-head"><div><h2>Sua história começa aqui</h2><p>Use informações reais. Este perfil orienta a análise de vagas e os textos assistidos.</p></div></div><form id="profileForm"><div class="form-grid">${fields.map(([n,l])=>`<label>${l}<input name="${n}" value="${esc(profile[n])}" ${n==='term'?'type="number" min="1" max="20" required':n==='email'?'type="email"':''}></label>`).join('')}</div><label>Cargos de interesse<input name="target_roles" value="${esc((profile.target_roles||[]).join(', '))}" placeholder="Ex.: estágio em desenvolvimento, analista júnior"><small>Separe por vírgulas.</small></label><label>Habilidades<input name="skills" value="${esc((profile.skills||[]).join(', '))}" placeholder="Ex.: Python, SQL, comunicação"><small>Inclua apenas competências que você consegue demonstrar. Separe por vírgulas.</small></label><label>Projetos e evidências (JSON)<textarea name="evidence" rows="7" spellcheck="false">${esc(JSON.stringify(profile.evidence||[],null,2))}</textarea><small>Lista de objetos. Exemplo de estrutura: [{"name": "Nome do projeto", "description": "O que você fez", "url": "https://..."}]. Não invente experiências.</small></label><button type="submit">Salvar perfil</button></form></div>`;$('profileForm').onsubmit=e=>{e.preventDefault();busy(e.submitter,async()=>{const f=new FormData(e.target);let evidence;try{evidence=JSON.parse(f.get('evidence'));if(!Array.isArray(evidence)||evidence.some(v=>!v||typeof v!=='object'||Array.isArray(v)))throw Error()}catch{throw Error('Revise o JSON de evidências: use uma lista de objetos.')}const next={...profile,evidence};for(const [key,value]of f){if(['skills','target_roles'].includes(key))next[key]=value.split(',').map(x=>x.trim()).filter(Boolean);else if(key==='term'){if(!value)throw Error('Informe seu semestre ou termo.');next[key]=Number(value);}else if(key!=='evidence')next[key]=value}await api('/api/profile',{method:'PUT',body:JSON.stringify(next)});await reload();toast('Perfil salvo.')})}}
+function profilePhoto(value) {
+  return typeof value === 'string' && value.length <= 50000 &&
+    /^data:image\/jpeg;base64,[A-Za-z0-9+/]+={0,2}$/.test(value) ? value : '';
+}
+
+async function resizeProfilePhoto(file) {
+  if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type) || file.size > 5 * 1024 * 1024) {
+    throw Error('Escolha uma foto JPEG, PNG ou WebP de até 5 MiB.');
+  }
+  const bitmap = await createImageBitmap(file);
+  try {
+    const canvas = document.createElement('canvas');
+    canvas.width = canvas.height = 160;
+    const side = Math.min(bitmap.width, bitmap.height);
+    const ctx = canvas.getContext('2d');
+    ctx.fillStyle = '#fff';
+    ctx.fillRect(0, 0, 160, 160);
+    ctx.drawImage(bitmap, (bitmap.width-side)/2, (bitmap.height-side)/2, side, side, 0, 0, 160, 160);
+    const result = profilePhoto(canvas.toDataURL('image/jpeg', .78));
+    if (!result) throw Error('Não foi possível preparar a foto.');
+    return result;
+  } finally {
+    bitmap.close();
+  }
+}
+
+function renderProfile(){const fields=[['full_name','Nome completo'],['email','E-mail'],['phone','Telefone'],['city','Cidade'],['course','Curso'],['term','Semestre / termo'],['graduation_date','Previsão de conclusão'],['linkedin','LinkedIn'],['github','GitHub']];
+const owner = session?.user.id;
+let avatar = profilePhoto(profile.avatar);
+const sections = [
+  ['Identificação', profile.full_name],
+  ['Contato', profile.email || profile.phone],
+  ['Formação', profile.course],
+  ['Resumo profissional', profile.summary],
+  ['Habilidades', profile.skills?.length],
+  ['Projetos e evidências', profile.evidence?.length],
+  ['Currículo anexado', resumes.length],
+];
+const status = sections.filter(([, filled]) => filled).length;
+$('view').innerHTML=`<div class="card"><div class="section-head"><div><h2>Meu perfil</h2><p>Use informações reais. Este perfil orienta a análise de vagas e os textos assistidos.</p></div></div><div class="profile-overview"><div id="profileAvatar" class="profile-avatar"></div><div><h3>${esc(profile.full_name || 'Minha conta')}</h3><p>${esc(session?.user.email || '')}</p><p>${status} de ${sections.length} áreas preenchidas</p></div></div>
+<div class="profile-checklist">${sections.map(([label,filled])=>`<span class="badge">${filled?'✓':'○'} ${label}</span>`).join('')}</div>
+<form id="profileForm"><div class="row"><label>Foto de perfil<input id="profilePhoto" type="file" accept="image/jpeg,image/png,image/webp"></label><button type="button" id="removeProfilePhoto" class="secondary small">Remover foto</button></div><small>A foto será atualizada ao salvar o perfil.</small><div class="form-grid">${fields.map(([n,l])=>`<label>${l}<input name="${n}" value="${esc(profile[n])}" ${n==='term'?'type="number" min="1" max="20" required':n==='email'?'type="email"':''}></label>`).join('')}</div><label>Resumo profissional<textarea name="summary" rows="4" maxlength="10000">${esc(profile.summary || '')}</textarea></label><label>Cargos de interesse<input name="target_roles" value="${esc((profile.target_roles||[]).join(', '))}" placeholder="Ex.: estágio em desenvolvimento, analista júnior"><small>Separe por vírgulas.</small></label><label>Habilidades<input name="skills" value="${esc((profile.skills||[]).join(', '))}" placeholder="Ex.: Python, SQL, comunicação"><small>Inclua apenas competências que você consegue demonstrar. Separe por vírgulas.</small></label><label>Projetos e evidências (JSON)<textarea name="evidence" rows="7" spellcheck="false">${esc(JSON.stringify(profile.evidence||[],null,2))}</textarea><small>Lista de objetos. Exemplo de estrutura: [{"name": "Nome do projeto", "description": "O que você fez", "url": "https://..."}]. Não invente experiências.</small></label><button type="submit">Salvar perfil</button></form></div>
+<div class="card"><h2>Seções do currículo</h2><p>Confira as seções e os contatos identificados no texto do arquivo.</p>
+${resumes.length ? `<div class="row"><select id="profileResume" aria-label="Currículo para analisar">${resumes.map(r=>`<option value="${esc(r.id)}">${esc(r.filename)}</option>`).join('')}</select><button id="inspectResume" type="button" class="secondary">Analisar currículo</button></div><div id="resumeSections" class="profile-checklist" role="status"></div>` : '<a href="#resumes">Adicionar currículo</a>'}</div>
+<div class="card"><h2>Dados da conta</h2><p>Baixe uma cópia dos seus dados antes de excluir a conta.</p><a href="#data">Exportar meus dados</a>
+<details class="account-delete"><summary>Excluir conta</summary><p>A exclusão é permanente e remove o perfil, as vagas, os currículos e o histórico de IA desta conta.</p>
+<form id="deleteAccountForm"><label>Digite EXCLUIR para confirmar<input name="confirmation" autocomplete="off" required pattern="EXCLUIR"></label><button class="danger" type="submit">Excluir minha conta</button></form></details></div>`;
+const updateAvatar = () => {
+  const slot = $('profileAvatar');
+  slot.replaceChildren();
+  if (avatar) {
+    const img = document.createElement('img');
+    img.src = avatar;
+    img.alt = 'Foto de perfil';
+    slot.append(img);
+  } else {
+    slot.textContent = (profile.full_name || session?.user.email || 'C').charAt(0).toUpperCase();
+  }
+};
+updateAvatar();
+const inspect = $('inspectResume');
+if (inspect) inspect.onclick = () => busy(inspect, async () => {
+  const selected = $('profileResume').value;
+  const report = await api('/api/resumes/' + encodeURIComponent(selected) + '/sections', {}, owner);
+  const output = $('resumeSections');
+  if (!output || session?.user.id !== owner || $('profileResume').value !== selected) return;
+  if (!report.has_text) {
+    output.textContent = 'Não foi encontrado texto legível neste arquivo.';
+    return;
+  }
+  const labels = {resumo:'Resumo',experiencia:'Experiência ou projetos',formacao:'Formação',habilidades:'Habilidades',email:'E-mail',phone:'Telefone',linkedin:'LinkedIn',github:'GitHub'};
+  const found = {...report.sections, ...report.contacts};
+  output.innerHTML = Object.entries(labels).map(([key,label]) =>
+    `<span class="badge">${found[key] ? '✓' : '○'} ${label}</span>`).join('');
+});
+if (inspect) $('profileResume').onchange = () => $('resumeSections').replaceChildren();
+$('removeProfilePhoto').onclick = () => { avatar = ''; $('profilePhoto').value = ''; updateAvatar(); };
+$('deleteAccountForm').onsubmit = event => {
+  event.preventDefault();
+  if (session?.user.id !== owner) return;
+  const confirmation = new FormData(event.currentTarget).get('confirmation');
+  busy(event.submitter, async () => {
+    await api('/api/account/delete', {method:'POST', body:JSON.stringify({confirmation})}, owner);
+    await client.auth.signOut({scope:'local'});
+    showSession(null);
+    toast('Conta excluída.');
+  });
+};
+$('profileForm').onsubmit=e=>{e.preventDefault();busy(e.submitter,async()=>{const f=new FormData(e.target);let evidence;try{evidence=JSON.parse(f.get('evidence'));if(!Array.isArray(evidence)||evidence.some(v=>!v||typeof v!=='object'||Array.isArray(v)))throw Error()}catch{throw Error('Revise o JSON de evidências: use uma lista de objetos.')}const photo = $('profilePhoto').files[0];
+const next={...profile,evidence,avatar:photo ? await resizeProfilePhoto(photo) : avatar};
+if(session?.user.id!==owner)return;for(const [key,value]of f){if(['skills','target_roles'].includes(key))next[key]=value.split(',').map(x=>x.trim()).filter(Boolean);else if(key==='term'){if(!value)throw Error('Informe seu semestre ou termo.');next[key]=Number(value);}else if(key!=='evidence')next[key]=value}await api('/api/profile',{method:'PUT',body:JSON.stringify(next)}, owner);await reload();toast('Perfil salvo.')})}}
 function renderResumes(){$('view').innerHTML=`<div class="card"><div class="section-head"><div><h2>Seus materiais, organizados</h2><p>Guarde e consulte os currículos da sua conta.</p></div></div><form id="uploadForm" class="upload"><h3>Adicione seu currículo</h3><p>Envie um arquivo PDF ou DOCX.</p><input type="file" id="resumeFile" accept=".pdf,.docx" required aria-label="Arquivo de currículo"><button type="submit">↑ Enviar arquivo</button></form><div>${resumes.length?resumes.map(r=>`<div class="file-row"><div><h3>▤ ${esc(r.filename)}</h3><small>Adicionado em ${date(r.created_at)}</small></div><div class="row"><button class="small secondary" data-download="${esc(r.id)}">Baixar</button><button class="small danger" data-remove-resume="${esc(r.id)}">Excluir</button></div></div>`).join(''):empty('Nenhum currículo salvo','Seus arquivos enviados aparecerão aqui.')}</div></div>`;$('uploadForm').onsubmit=e=>{e.preventDefault();busy(e.submitter,async()=>{const form=new FormData();form.append('file',$('resumeFile').files[0]);await api('/api/resumes',{method:'POST',body:form});await reload();toast('Arquivo enviado.')})};document.querySelectorAll('[data-download]').forEach(b=>b.onclick=()=>busy(b,async()=>{const data=await api(`/api/resumes/${b.dataset.download}/download`);const url=safeURL(data.url);if(!url)throw Error('Link de download inválido.');const a=document.createElement('a');a.href=url;a.rel='noopener noreferrer';a.download='';document.body.append(a);a.click();a.remove()}));document.querySelectorAll('[data-remove-resume]').forEach(b=>b.onclick=()=>{if(confirm('Excluir este currículo e seu arquivo?'))busy(b,async()=>{await api(`/api/resumes/${b.dataset.removeResume}`,{method:'DELETE'});await reload();toast('Currículo excluído.')})})}
 function captureDraft(){const f=$('aiForm');if(!f)return;for(const name of Object.keys(aiDraft))aiDraft[name]=f.elements.namedItem(name).value}
 function aiPayload(){captureDraft();const p={provider:aiDraft.provider,model:aiDraft.model.trim(),task:aiDraft.task,max_output_tokens:Number(aiDraft.max_output_tokens),instruction:aiDraft.instruction,previous_text:aiDraft.previous_text};if(aiDraft.job_id)p.job_id=aiDraft.job_id;if(aiDraft.resume_id)p.resume_id=aiDraft.resume_id;for(const k of ['input_price_per_million','output_price_per_million'])if(aiDraft[k]!=='')p[k]=Number(aiDraft[k]);return p}

@@ -87,6 +87,7 @@ class ProfileInput(BaseModel):
     graduation_date: ShortText = ''
     linkedin: ShortText = ''
     github: ShortText = ''
+    avatar: str = Field(default='', max_length=50000, pattern=r'^(data:image/jpeg;base64,[A-Za-z0-9+/]+={0,2})?$')
     summary: str = Field(default='', max_length=10000)
     target_roles: list[ShortText] = Field(default_factory=list, max_length=50)
     skills: list[ShortText] = Field(default_factory=list, max_length=100)
@@ -143,6 +144,30 @@ async def profile(store: SupabaseStore = Depends(get_store)):
 @app.put('/api/profile')
 async def save_profile(data: ProfileInput, store: SupabaseStore = Depends(get_store)):
     return await store.save_profile(data.model_dump())
+
+class AccountDeletion(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    confirmation: Literal['EXCLUIR']
+
+
+@app.post('/api/account/delete', status_code=204)
+async def delete_account(data: AccountDeletion, store: SupabaseStore = Depends(get_store)):
+    cfg = store.config
+    try:
+        async with httpx.AsyncClient(timeout=45) as client:
+            result = await client.post(
+                cfg.supabase_url + '/functions/v1/delete-account',
+                headers={'apikey': cfg.supabase_anon_key, 'Authorization': 'Bearer ' + store.user.token},
+                json=data.model_dump(),
+            )
+    except httpx.HTTPError:
+        raise HTTPException(503, 'Não foi possível confirmar a exclusão. Tente novamente.') from None
+    if result.status_code == 401:
+        raise HTTPException(401, 'Entre novamente para excluir sua conta.')
+    if result.status_code != 204:
+        raise HTTPException(502, 'Não foi possível concluir a exclusão. Tente novamente.')
+    return Response(status_code=204)
+
 
 @app.get('/api/jobs')
 async def jobs(store: SupabaseStore = Depends(get_store)):
@@ -232,6 +257,16 @@ async def resume_row(id, store):
     if not rows:
         raise HTTPException(404, 'Resume not found')
     return rows[0]
+
+@app.get('/api/resumes/{id}/sections')
+async def resume_sections(id: UUID, store: SupabaseStore = Depends(get_store)):
+    from app.services.resume_analysis import analyze_resume
+
+    row = await resume_row(id, store)
+    text = row.get('text') or ''
+    report = analyze_resume(text[:100000])
+    return {'has_text': bool(text.strip()), 'sections': report['sections'], 'contacts': report['contacts']}
+
 
 @app.get('/api/resumes/{id}/download')
 async def download_resume(id: UUID, store: SupabaseStore = Depends(get_store)):

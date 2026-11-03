@@ -7,7 +7,7 @@ const modes = {
   login: ['Bem-vindo de volta', 'Entre para continuar de onde parou.', 'Entrar'],
   signup: ['Crie sua conta', 'Comece a organizar seu próximo passo.', 'Criar conta'],
   reset: ['Recupere seu acesso', 'Enviaremos um link para você escolher outra senha.', 'Enviar link'],
-  recover: ['Defina uma nova senha', 'Use pelo menos 8 caracteres.', 'Salvar senha'],
+  recover: ['Defina uma nova senha', 'Use uma senha forte e confirme a digitação.', 'Salvar senha'],
 };
 
 const messages = {
@@ -22,14 +22,26 @@ function Auth({ client, redirectTo, bridge, startupError }) {
   const [mode, setMode] = useState('login');
   const [providers, setProviders] = useState([]);
   const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
   const [email, setEmail] = useState('');
   const [visible, setVisible] = useState(false);
   const [pending, setPending] = useState(false);
   const [feedback, setFeedback] = useState(null);
 
+  const newPassword = mode === 'signup' || mode === 'recover';
+  const passwordRules = [
+    ['12 caracteres ou mais', password.length >= 12],
+    ['Uma maiúscula e uma minúscula', /[A-Z]/.test(password) && /[a-z]/.test(password)],
+    ['Um número', /[0-9]/.test(password)],
+    ['Um símbolo', /[^A-Za-z0-9\s]/.test(password)],
+  ];
+  const strong = passwordRules.every(([, valid]) => valid);
+  const matches = password === confirmPassword && confirmPassword.length > 0;
+
   function changeMode(next) {
     setMode(next);
     setPassword('');
+    setConfirmPassword('');
     setVisible(false);
     setFeedback(null);
   }
@@ -39,6 +51,10 @@ function Auth({ client, redirectTo, bridge, startupError }) {
 
   async function submit(event) {
     event.preventDefault();
+    if (newPassword && (!strong || !matches)) {
+      setFeedback({error:true, text: strong ? 'As senhas precisam coincidir.' : 'Sua senha precisa cumprir todos os requisitos.'});
+      return;
+    }
     setPending(true);
     setFeedback(null);
     try {
@@ -49,6 +65,7 @@ function Auth({ client, redirectTo, bridge, startupError }) {
       if (mode === 'recover') result = await client.auth.updateUser({password});
       if (result.error) throw result.error;
       setPassword('');
+      setConfirmPassword('');
       if (mode === 'recover') {
         changeMode('login');
         await bridge.recovered();
@@ -108,13 +125,21 @@ function Auth({ client, redirectTo, bridge, startupError }) {
               {mode !== 'reset' && (
                 <label htmlFor="auth-password">Senha
                   <span className="auth-password">
-                    <input id="auth-password" type={visible ? 'text' : 'password'} autoComplete={mode === 'login' ? 'current-password' : 'new-password'} minLength={mode === 'login' ? undefined : 8} value={password} onChange={e => setPassword(e.target.value)} required />
+                    <input id="auth-password" type={visible ? 'text' : 'password'} autoComplete={mode === 'login' ? 'current-password' : 'new-password'} minLength={newPassword ? 12 : undefined} maxLength={newPassword ? 72 : undefined} value={password} onChange={e => setPassword(e.target.value)} required />
                     <button type="button" className="auth-link" aria-pressed={visible} onClick={() => setVisible(!visible)}>{visible ? 'Ocultar' : 'Mostrar'}</button>
                   </span>
                 </label>
               )}
               {mode === 'login' && <button type="button" className="auth-link auth-forgot" disabled={pending} onClick={() => changeMode('reset')}>Esqueci a senha</button>}
-              {mode === 'signup' && <small className="auth-hint">Use pelo menos 8 caracteres.</small>}
+              {newPassword && <>
+                <label htmlFor="auth-password-confirm">Confirmar senha
+                  <input id="auth-password-confirm" type={visible ? 'text' : 'password'} autoComplete="new-password" value={confirmPassword} onChange={e => setConfirmPassword(e.target.value)} required maxLength={72} aria-describedby="auth-password-rules" />
+                </label>
+                <ul id="auth-password-rules" className="auth-password-rules">
+                  {passwordRules.map(([label, valid]) => <li key={label} data-valid={valid}>{valid ? '✓' : '○'} {label}</li>)}
+                  <li data-valid={matches}>{matches ? '✓ Senhas coincidem' : '○ As duas senhas devem coincidir'}</li>
+                </ul>
+              </>}
               <button className="auth-primary" type="submit" disabled={pending}>{pending ? 'Aguarde…' : action}<span aria-hidden="true">→</span></button>
             </form>
           )}
