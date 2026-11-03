@@ -2,6 +2,10 @@
 
 Aplicativo local para capturar, analisar e acompanhar vagas de estágio em tecnologia.
 
+## Versão web (cloud)
+
+Para publicar o painel autenticado com Google/GitHub, Supabase e extensão Chrome/Edge, siga [o guia Web MVP](docs/WEB_MVP.md). A extensão cloud está em `extension-cloud`; o fluxo local abaixo continua independente.
+
 ## Início rápido no Windows
 
 1. Extraia o projeto.
