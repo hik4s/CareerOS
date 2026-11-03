@@ -422,3 +422,41 @@ homologação real e backup/restauração cloud com desenho específico.
 Este arquivo mantém as informações da V1 como histórico e acrescenta as mudanças
 sem apagar decisões ou evidências anteriores. Usar esta seção como estado mais
 recente de código/deploy, preservando a pendência de autenticação da seção 7.
+
+
+## 19. Login e correção de resiliência da autenticação (1.1.1)
+
+O usuário concluiu o hCaptcha e o painel Supabase confirmou a sessão autenticada.
+O projeto CareerOS foi aberto. Google e GitHub continuam Disabled. O formulário
+GitHub está sem Client ID/Client Secret. Nenhum cliente OAuth foi criado nem
+credencial salva. O navegador GitHub não estava autenticado; a solicitação segura
+de login foi bloqueada pela revisão automática por limite de uso, antes de
+executar a ação. Não contornar o bloqueio por outro canal ou inventar credenciais.
+Site URL e redirects ainda precisam ser verificados/configurados no painel.
+
+Na continuação, corrigido require_user: indisponibilidade, limite do Supabase,
+falha de rede e resposta inválida agora resultam em 503 + Retry-After: 30, sem
+acesso ao banco e sem repetir chamadas. Somente 401/403 do serviço de Auth
+resultam em sessão inválida (401 + WWW-Authenticate). Nenhuma falha libera acesso
+a dados. Mensagens de erro não expõem token nem resposta privada do upstream.
+Respostas /api/* usam Cache-Control: no-store, inclusive erros e downloads.
+Todas as respostas incluem Referrer-Policy: no-referrer e nosniff.
+
+Novos testes em tests/test_cloud_auth_resilience.py reproduziram dez falhas antes
+da implementação e passaram depois. A suíte cloud passou com 59 testes.
+A suíte completa inicialmente não coletou test_core.py por falta de feedparser
+no ambiente; verificar a execução final antes de afirmar que toda a suíte passou.
+O ambiente recém-instalado usa Starlette 1.10.0 e emite aviso de depreciação do
+TestClient com httpx; não há mudança de dependências nesta correção.
+
+Branch: codex/auth-resilience-2026-11-03. Versão alvo: 1.1.1. Consultar GitHub e
+Render para confirmar integração e publicação; este registro não prova deploy.
+
+Validação final local: após instalar feedparser no ambiente, a suíte completa
+passou com 83 testes e três avisos de depreciação (Starlette TestClient/httpx
+e lifecycle on_event legado do desktop). Não foram ocultados avisos.
+
+A revisão detectou que respostas 500 inesperadas contornam o middleware de
+cabeçalhos. Corrigido com handler genérico de erro sanitizado e os mesmos
+cabeçalhos de privacidade. Regressão reproduzida antes do ajuste; suíte final
+84 testes aprovados (11 novos), três avisos de depreciação. PR #4.

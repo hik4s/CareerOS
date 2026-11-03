@@ -26,6 +26,24 @@ app = FastAPI(title='CareerOS Cloud', version=VERSION)
 _parse_gate = asyncio.Semaphore(1)
 app.add_middleware(CORSMiddleware, allow_origins=list(settings().cors_origins), allow_origin_regex=r'chrome-extension://[a-p]{32}', allow_credentials=False, allow_methods=['GET', 'POST', 'PUT', 'PATCH', 'DELETE'], allow_headers=['Authorization', 'Content-Type'])
 
+def response_privacy_headers(request):
+    headers = {'Referrer-Policy': 'no-referrer', 'X-Content-Type-Options': 'nosniff'}
+    if request.url.path.startswith('/api/'):
+        headers['Cache-Control'] = 'no-store'
+    return headers
+
+@app.middleware('http')
+async def privacy_headers(request, call_next):
+    response = await call_next(request)
+    response.headers.update(response_privacy_headers(request))
+    return response
+
+@app.exception_handler(Exception)
+async def unexpected_error(request, exc):
+    # Starlette creates these responses outside user middleware.
+    return JSONResponse(status_code=500, content={'detail': 'Não foi possível concluir a operação. Tente novamente em instantes.'},
+                        headers=response_privacy_headers(request))
+
 @app.exception_handler(RequestValidationError)
 async def validation_error(request, exc):
     return JSONResponse(status_code=422, content={'detail': [{'loc': list(e['loc']), 'msg': e['msg'], 'type': e['type']} for e in exc.errors()]})
