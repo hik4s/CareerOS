@@ -68,3 +68,20 @@ def test_personal_api_success_and_failure_are_not_cacheable(auth_server):
         assert response.headers['Cache-Control'] == 'no-store'
         assert response.headers['Referrer-Policy'] == 'no-referrer'
         assert response.headers['X-Content-Type-Options'] == 'nosniff'
+
+
+def test_unexpected_api_error_is_sanitized_and_not_cacheable():
+    from app.cloud.store import get_store
+    def broken_store():
+        raise RuntimeError('private internal details')
+    app.dependency_overrides[get_store] = broken_store
+    try:
+        with TestClient(app, raise_server_exceptions=False) as client:
+            response = client.get('/api/profile')
+        assert response.status_code == 500
+        assert 'private internal details' not in response.text
+        assert response.headers['Cache-Control'] == 'no-store'
+        assert response.headers['Referrer-Policy'] == 'no-referrer'
+        assert response.headers['X-Content-Type-Options'] == 'nosniff'
+    finally:
+        app.dependency_overrides.clear()

@@ -455,3 +455,8 @@ Render para confirmar integração e publicação; este registro não prova depl
 Validação final local: após instalar feedparser no ambiente, a suíte completa
 passou com 83 testes e três avisos de depreciação (Starlette TestClient/httpx
 e lifecycle on_event legado do desktop). Não foram ocultados avisos.
+
+A revisão detectou que respostas 500 inesperadas contornam o middleware de
+cabeçalhos. Corrigido com handler genérico de erro sanitizado e os mesmos
+cabeçalhos de privacidade. Regressão reproduzida antes do ajuste; suíte final
+84 testes aprovados (11 novos), três avisos de depreciação. PR #4.
