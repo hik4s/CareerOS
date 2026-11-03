@@ -1,14 +1,14 @@
-# JobsFinder Cloud MVP
+# CareerOS Cloud MVP
 
 O modo web usa FastAPI com Supabase Auth, PostgreSQL e Storage privados via REST. O modo local continua disponível pelo fluxo do README. A entrada web é `app.cloud.main:app`; não execute `app.main:app` no Render. O servidor não precisa de SQLite persistente, disco Render, instalador Windows ou chaves globais de provedores de IA.
 
 ## 1. Criar e preparar o Supabase
 
 1. Crie um projeto Supabase e guarde a senha do banco no seu gerenciador de segredos. Aguarde o provisionamento.
-2. Em **Project Settings → API**, copie a URL do projeto (`https://<project-ref>.supabase.co`) e a chave pública **anon**. Nunca use `service_role`, secret key ou senha de banco no JobsFinder, no frontend ou na extensão.
+2. Em **Project Settings → API**, copie a URL do projeto (`https://<project-ref>.supabase.co`) e a chave pública **anon**. Nunca use `service_role`, secret key ou senha de banco no CareerOS, no frontend ou na extensão.
 3. Abra **SQL Editor → New query**, cole o conteúdo integral de `supabase/migrations/202611030001_cloud.sql` e execute uma vez em um projeto novo. Alternativa com Supabase CLI: associe o projeto e execute `supabase db push`. A migração cria tabelas, índices, RLS por `auth.uid()`, limites de currículos e bucket **privado** `career-resumes`, com acesso por pasta do usuário. Não torne o bucket público e não desative RLS.
 4. Em **Authentication → Providers**, habilite Google e GitHub. Crie as credenciais OAuth nos consoles de cada provedor e configure o callback de ambos como `https://<project-ref>.supabase.co/auth/v1/callback`. Para Google, configure também as origens JavaScript exigidas pelo console. Os client secrets pertencem ao Supabase, não ao Render ou ao repositório.
-5. Em **Authentication → URL Configuration**, configure **Site URL** para a origem pública do JobsFinder (`APP_URL`, por exemplo `https://jobsfinder-b5a9.onrender.com`). Adicione essa origem e o endereço de retorno usado pelo frontend à **Redirect URLs** permitida. Para o frontend atual, permita `https://jobsfinder-b5a9.onrender.com/`. Para desenvolvimento, adicione explicitamente `http://localhost:8000/` (ou a porta que usar). Não use curingas amplos de produção.
+5. Em **Authentication → URL Configuration**, configure **Site URL** para a origem pública do CareerOS (`APP_URL`, por exemplo `https://careeros-cloud.onrender.com`). Adicione essa origem e o endereço de retorno usado pelo frontend à **Redirect URLs** permitida. Para o frontend atual, permita `https://careeros-cloud.onrender.com/`. Para desenvolvimento, adicione explicitamente `http://localhost:8000/` (ou a porta que usar). Não use curingas amplos de produção.
 
 ## 2. Publicar no Render
 

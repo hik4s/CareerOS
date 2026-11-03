@@ -9,7 +9,7 @@ async function capture(tabId) {
   const {careerOrigin: configured} = await chrome.storage.local.get('careerOrigin');
   const origin = careerOrigin(configured || '');
   const {careerToken: token,careerTokenOrigin: tokenOrigin} = await chrome.storage.session.get(['careerToken','careerTokenOrigin']);
-  if (!token || tokenOrigin !== origin) return {ok:false,error:'Conecte com um token atual do painel JobsFinder.'};
+  if (!token || tokenOrigin !== origin) return {ok:false,error:'Conecte com um token atual do painel CareerOS.'};
   if (!await chrome.permissions.contains({origins:[origin+'/*']})) return {ok:false,error:'Conecte novamente para autorizar esta origem.'};
   const results = await chrome.scripting.executeScript({target:{tabId},func:extractJob});
   const extracted = results?.[0]?.result;

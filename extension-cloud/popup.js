@@ -10,7 +10,7 @@ document.getElementById('connect').addEventListener('click', async () => {
     if (!token || token.length > 16000 || /\s/.test(token)) throw new Error('Cole o token de acesso copiado no painel.');
     // Request only this origin, directly from the user's click gesture.
     const allowed = await chrome.permissions.request({origins: [origin + '/*']});
-    if (!allowed) throw new Error('Permita acesso ao endereço do seu JobsFinder para conectar.');
+    if (!allowed) throw new Error('Permita acesso ao endereço do seu CareerOS para conectar.');
     const previous = await chrome.storage.local.get('careerOrigin');
     await chrome.storage.session.remove(['careerToken', 'careerTokenOrigin']);
     await chrome.storage.local.set({careerOrigin: origin});
@@ -25,7 +25,7 @@ document.getElementById('capture').addEventListener('click', async () => {
     const [tab] = await chrome.tabs.query({active:true,currentWindow:true});
     if (!tab?.id) throw new Error('Abra uma página de vaga.');
     const result = await chrome.runtime.sendMessage({type:'capture',tabId:tab.id});
-    show(result.ok ? 'Vaga salva. Revise o conteúdo no painel JobsFinder.' : result.error);
+    show(result.ok ? 'Vaga salva. Revise o conteúdo no painel CareerOS.' : result.error);
   } catch (e) { show(e.message); }
 });
 document.getElementById('logout').addEventListener('click', async () => {
