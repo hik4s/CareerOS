@@ -399,3 +399,26 @@ gerar uma análise por regras, abrir Meus dados e baixar o ZIP; verificar regist
 arquivo e hashes. Outra conta não pode obter a mesma exportação ou currículo.
 A conta continua intacta após exportar. Próximas prioridades permanecem OAuth,
 homologação real e backup/restauração cloud com desenho específico.
+
+
+## 18. Publicação confirmada da 1.1.0
+
+- PR #3: https://github.com/hik4s/CareerOS/pull/3, integrado na branch publicada;
+  main continua intacta.
+- Commit de implementação: d7f661764cfcf73a874caefb51bbac964af3f4d6.
+- Merge na branch codex/v1-release-2026-11-03:
+  328a9f79fbe67cac0af4524821442fc94d66075e.
+- Checks GitHub 41662048473 e 41662158785 passaram antes da integração.
+- Render NÃO iniciou deploy automático após o merge, apesar de exibir yes/commit.
+  Foi necessário solicitar deploy manual pelo conector, sem nova alteração de código.
+  A integração Git do Render precisa ser validada no painel; não prometer que
+  próximos pushes serão publicados automaticamente com a configuração atual.
+- Deploy dep-dbl1fnff3r2c7386ateg confirmado LIVE em 03/11/2026.
+- Health HTTP real confirmou status ok, configured true, version 1.1.0.
+- A aba Meus dados e a API de exportação fazem parte desse commit publicado.
+  A homologação com uma sessão de usuário real continua pendente de OAuth.
+- Nenhum recurso pago foi criado e não houve alteração de schema nesta continuação.
+
+Este arquivo mantém as informações da V1 como histórico e acrescenta as mudanças
+sem apagar decisões ou evidências anteriores. Usar esta seção como estado mais
+recente de código/deploy, preservando a pendência de autenticação da seção 7.
