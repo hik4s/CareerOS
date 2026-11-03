@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 172 48" role="img" aria-labelledby="title">
+  <title id="title">CareerOS</title>
+  <rect width="172" height="48" rx="12" fill="#141a32"/>
+  <rect x="7" y="7" width="34" height="34" rx="11" fill="#7053e9"/>
+  <g font-family="Manrope, sans-serif" font-weight="800" fill="#fff">
+    <text x="24" y="24" dominant-baseline="central" text-anchor="middle" font-size="24">C</text>
+    <text x="51" y="24" dominant-baseline="central" font-size="25">Career<tspan fill="#b4a2ff">OS</tspan></text>
+  </g>
+</svg>
