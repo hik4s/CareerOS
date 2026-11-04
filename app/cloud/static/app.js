@@ -36,7 +36,27 @@ function renderDiscovery() {
   <div id="discoverStatus" role="status"></div><div id="discoverResults"></div>`;
   const form = $('discoverForm');
   const owner = session.user.id;
+  const storageKey = 'careeros.discovery.' + owner;
+  let state = {};
+  try { state = JSON.parse(sessionStorage.getItem(storageKey)) || {}; } catch {}
+  const remember = () => {
+    try { sessionStorage.setItem(storageKey, JSON.stringify(state)); } catch {}
+  };
+  const draft = state.draft ?? {};
+  form.elements.q.value = draft.q ?? '';
+  form.elements.location.value = draft.location ?? '';
+  form.elements.remote.checked = draft.remote === 'true';
+  const filters = () => ({
+    q: form.elements.q.value.trim(),
+    location: form.elements.location.value.trim(),
+    remote: String(form.elements.remote.checked),
+  });
+  form.oninput = () => {
+    state.draft = filters();
+    remember();
+  };
   let searching = false;
+  let retry;
   $('discoverImport').onsubmit = event => {
     event.preventDefault();
     const importForm = event.currentTarget;
@@ -48,18 +68,31 @@ function renderDiscovery() {
       }
     });
   };
-  const search = (query, page, button) => {
-    if (searching) return;
+  const search = (query, page, button, attempt = 0) => {
+    if (searching || !form.isConnected) return;
+    clearTimeout(retry);
     searching = true;
     busy(button, async () => {
       query.set('page', page);
+      state.query = query.toString();
+      state.page = page;
+      remember();
       $('discoverStatus').textContent = 'Consultando fontes de vagas…';
       const submit = form.querySelector('[type="submit"]');
       submit.disabled = true;
       try {
         const result = await api('/api/discovery/jobs?' + query, {}, owner);
         if (!form.isConnected || session?.user.id !== owner) return;
-        renderDiscoveryResults(result, (next, control) => search(query, next, control));
+        const refreshing = result.sources?.some(source => source.refreshing);
+        if (!refreshing || !state.result?.jobs?.length || (result.page === page && result.jobs?.length)) {
+          renderDiscoveryResults(result, (next, control) => search(query, next, control));
+          state.result = result;
+        }
+        state.page = refreshing ? page : (result.page ?? page);
+        remember();
+        if (refreshing && attempt < 7) {
+          retry = setTimeout(() => search(query, page, null, attempt + 1), 4000);
+        }
       } finally {
         if (form.isConnected) $('discoverStatus').textContent = '';
         submit.disabled = false;
@@ -69,12 +102,18 @@ function renderDiscovery() {
   };
   form.onsubmit = event => {
     event.preventDefault();
-    const values = new FormData(form);
-    search(new URLSearchParams({
-      q: values.get('q').trim(), location: values.get('location').trim(),
-      remote: String(values.has('remote')),
-    }), 1, event.submitter);
+    const values = filters();
+    state = {draft: values, query: new URLSearchParams(values).toString(), page: 1};
+    remember();
+    search(new URLSearchParams(values), 1, event.submitter);
   };
+  if (typeof state.query === 'string') {
+    const query = new URLSearchParams(state.query);
+    if (Array.isArray(state.result?.jobs)) {
+      renderDiscoveryResults(state.result, (page, button) => search(query, page, button));
+    }
+    search(query, state.page || 1, null);
+  }
 }
 
 function renderDiscoveryResults(result, goToPage) {
@@ -84,7 +123,7 @@ function renderDiscoveryResults(result, goToPage) {
   }
   const sourceStatus = sources.map(source => {
     const updated = source.updated_at && new Date(source.updated_at).toLocaleString('pt-BR');
-    const status = source.partial ? 'atualização parcial' :
+    const status = source.refreshing ? 'atualizando' : source.partial ? 'atualização parcial' :
       source.available ? 'disponível' : updated ? 'exibindo última coleta' : 'temporariamente indisponível';
     return `<li>${esc(source.name)} · ${status}${updated ? ' · Atualizada em ' + esc(updated) : ''}</li>`;
   }).join('');
@@ -104,7 +143,9 @@ function renderDiscoveryResults(result, goToPage) {
   }).join('');
   $('discoverResults').innerHTML = `
     <section class="card"><h2>Resultados integrados</h2><details><summary>Atualização das fontes</summary><ul class="fine">${sourceStatus}</ul></details>
-    <p>${total ? `${total} vagas encontradas. Página ${page} de ${Math.ceil(total / pageSize)}.` : 'Nenhuma vaga encontrada nas fontes disponíveis. Tente outros termos ou filtros.'}</p>
+    <p>${total ? `${total} vagas encontradas. Página ${page} de ${Math.ceil(total / pageSize)}.` :
+      sources.some(source => source.refreshing) ? 'Carregando o catálogo. Os resultados aparecerão aqui.' :
+      'Nenhuma vaga encontrada nas fontes disponíveis. Tente outros termos ou filtros.'}</p>
     ${cards}<div class="job-actions">
       ${page > 1 ? '<button class="small secondary" id="discoverPrevious">Página anterior</button>' : ''}
       ${page * pageSize < total ? '<button class="small secondary" id="discoverNext">Próxima página</button>' : ''}
