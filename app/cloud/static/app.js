@@ -6,7 +6,53 @@ const titles={overview:'Visão geral',jobs:'Minhas vagas',discover:'Buscar vagas
 let client,session,profile={},jobs=[],resumes=[],history=[],apiKey='',tab='overview',estimate=null,estimatePayload=null,aiResult='',loadGeneration=0;
 let aiDraft={provider:'heuristic',model:'',task:'evaluate',job_id:'',resume_id:'',instruction:'',previous_text:'',max_output_tokens:512,input_price_per_million:'',output_price_per_million:''};
 function toast(message,error=false){$('toast').textContent=message;$('toast').className=error?'error':'';clearTimeout(toast.timer);toast.timer=setTimeout(()=>$('toast').textContent='',6000)}
-async function api(path,options={},expectedOwner){const {data,error}=await client.auth.getSession();if(error||!data.session||(expectedOwner && data.session.user.id!==expectedOwner))throw Error('Sua sessão expirou. Entre novamente.');const headers={Authorization:`Bearer ${data.session.access_token}`,...options.headers};if(options.body&&!(options.body instanceof FormData))headers['Content-Type']='application/json';const response=await fetch(path,{...options,headers});if(!response.ok){let body;try{body=await response.json()}catch{}throw Error(typeof body?.detail==='string'?body.detail:`Não foi possível concluir a operação (${response.status}).`)}return response.status===204?null:response.json()}
+let sessionRequest;
+let sessionExpires = 0;
+const sessionEvents = typeof BroadcastChannel === 'function' ? new BroadcastChannel('careeros.session') : null;
+if (sessionEvents) sessionEvents.onmessage = () => location.reload();
+const sessionLock = action => navigator.locks?.request
+  ? navigator.locks.request('careeros.browser-session', action) : action();
+
+async function sessionCall(method, payload, token) {
+  return sessionLock(async () => {
+    const headers = {};
+    if (payload) headers['Content-Type'] = 'application/json';
+    if (token) headers.Authorization = 'Bearer ' + token;
+    const response = await fetch('/api/auth/session', {
+      method, headers, body: payload ? JSON.stringify(payload) : undefined,
+    });
+    if (!response.ok) throw Error('Não foi possível verificar sua sessão. Tente novamente.');
+    if (response.status === 204) return null;
+    return (await response.json()).session;
+  });
+}
+
+function acceptSession(next) {
+  sessionExpires = next ? Date.now() + next.expires_in * 1000 : 0;
+  return next;
+}
+
+async function currentSession() {
+  if (session && Date.now() < sessionExpires - 30000) return session;
+  if (!sessionRequest) {
+    sessionRequest = sessionCall('POST', {}).then(next => {
+      if (!next || (session && session.user.id !== next.user.id)) showSession(next);
+      else session = next;
+      return acceptSession(next);
+    }).finally(() => { sessionRequest = null; });
+  }
+  return sessionRequest;
+}
+
+async function endSession() {
+  const next = await currentSession();
+  await sessionCall('DELETE', null, next?.access_token);
+  acceptSession(null);
+  showSession(null);
+  sessionEvents?.postMessage('changed');
+}
+
+async function api(path,options={},expectedOwner){const active=await currentSession();if(!active||(expectedOwner && active.user.id!==expectedOwner))throw Error('Sua sessão expirou. Entre novamente.');const headers={Authorization:`Bearer ${active.access_token}`,...options.headers};if(options.body&&!(options.body instanceof FormData))headers['Content-Type']='application/json';const response=await fetch(path,{...options,headers});if(!response.ok){let body;try{body=await response.json()}catch{}throw Error(typeof body?.detail==='string'?body.detail:`Não foi possível concluir a operação (${response.status}).`)}return response.status===204?null:response.json()}
 async function busy(button,fn){const original=button?.textContent;if(button){button.disabled=true;button.textContent='Aguarde…'}try{return await fn()}catch(e){toast(e.message||'Ocorreu um erro.',true)}finally{if(button){button.disabled=false;button.textContent=original}}}
 function empty(title,text){return `<div class="empty"><div class="empty-icon">◇</div><h3>${title}</h3><p>${text}</p></div>`}
 function safeURL(url){try{const u=new URL(url);return ['https:','http:'].includes(u.protocol)?u.href:''}catch{return ''}}
@@ -28,7 +74,10 @@ function renderDiscovery() {
     <label>Cidade, região ou país<input name="location" maxlength="100" placeholder="Ex.: São Paulo"></label>
     <label class="discover-check"><input type="checkbox" name="remote"> Somente vagas remotas</label>
     <button type="submit">Buscar vagas</button>
+    <button type="button" class="secondary" id="clearDiscovery">Limpar busca</button>
+    <button type="button" class="secondary" id="saveDiscovery">Salvar busca</button>
   </form></div>
+  <div class="card"><h2>Buscas favoritas</h2><div id="savedDiscoveries" aria-live="polite"></div></div>
   <div class="card"><form id="discoverImport" class="discover-form">
     <label>Link de uma vaga<input name="url" type="url" maxlength="4096" placeholder="https://…" required></label>
     <button type="submit" class="secondary">Importar link</button>
@@ -42,6 +91,12 @@ function renderDiscovery() {
   const remember = () => {
     try { sessionStorage.setItem(storageKey, JSON.stringify(state)); } catch {}
   };
+  if (!state.draft) {
+    try {
+      const saved = JSON.parse(localStorage.getItem(storageKey));
+      if (saved) state = {draft: saved, query: new URLSearchParams(saved).toString(), page: 1};
+    } catch {}
+  }
   const draft = state.draft ?? {};
   form.elements.q.value = draft.q ?? '';
   form.elements.location.value = draft.location ?? '';
@@ -57,6 +112,7 @@ function renderDiscovery() {
   };
   let searching = false;
   let retry;
+  let searchGeneration = 0;
   $('discoverImport').onsubmit = event => {
     event.preventDefault();
     const importForm = event.currentTarget;
@@ -72,6 +128,7 @@ function renderDiscovery() {
     if (searching || !form.isConnected) return;
     clearTimeout(retry);
     searching = true;
+    const generation = searchGeneration;
     busy(button, async () => {
       query.set('page', page);
       state.query = query.toString();
@@ -82,7 +139,7 @@ function renderDiscovery() {
       submit.disabled = true;
       try {
         const result = await api('/api/discovery/jobs?' + query, {}, owner);
-        if (!form.isConnected || session?.user.id !== owner) return;
+        if (!form.isConnected || session?.user.id !== owner || generation !== searchGeneration) return;
         const refreshing = result.sources?.some(source => source.refreshing);
         if (!refreshing || !state.result?.jobs?.length || (result.page === page && result.jobs?.length)) {
           renderDiscoveryResults(result, (next, control) => search(query, next, control));
@@ -100,13 +157,70 @@ function renderDiscovery() {
       }
     });
   };
+  const submitSearch = (values, button) => {
+    if (searching) return;
+    state = {draft: values, query: new URLSearchParams(values).toString(), page: 1};
+    try { localStorage.setItem(storageKey, JSON.stringify(values)); } catch {}
+    remember();
+    search(new URLSearchParams(values), 1, button);
+  };
   form.onsubmit = event => {
     event.preventDefault();
-    const values = filters();
-    state = {draft: values, query: new URLSearchParams(values).toString(), page: 1};
-    remember();
-    search(new URLSearchParams(values), 1, event.submitter);
+    submitSearch(filters(), event.submitter);
   };
+  $('clearDiscovery').onclick = () => {
+    searchGeneration++;
+    clearTimeout(retry);
+    state = {};
+    form.reset();
+    $('discoverResults').replaceChildren();
+    $('discoverStatus').textContent = '';
+    try { sessionStorage.removeItem(storageKey); localStorage.removeItem(storageKey); } catch {}
+  };
+  const favorites = $('savedDiscoveries');
+  const loadFavorites = async () => {
+    favorites.textContent = 'Carregando buscas favoritas…';
+    try {
+      const saved = await api('/api/discovery/saved-searches', {}, owner);
+      if (!favorites.isConnected) return;
+      favorites.replaceChildren();
+      if (!saved.length) favorites.textContent = 'Salve uma busca para reutilizá-la em outros dispositivos.';
+      for (const item of saved) {
+        const row = document.createElement('div');
+        row.className = 'job-actions';
+        const apply = document.createElement('button');
+        apply.className = 'small secondary';
+        apply.textContent = [item.q, item.location, item.remote ? 'Remoto' : ''].filter(Boolean).join(' · ') || 'Todas as vagas';
+        apply.onclick = () => {
+          if (searching) return;
+          form.elements.q.value = item.q;
+          form.elements.location.value = item.location;
+          form.elements.remote.checked = item.remote;
+          submitSearch(filters(), null);
+        };
+        const remove = document.createElement('button');
+        remove.className = 'small secondary';
+        remove.textContent = 'Remover';
+        remove.setAttribute('aria-label', 'Remover busca ' + apply.textContent);
+        remove.onclick = () => busy(remove, async () => {
+          await api('/api/discovery/saved-searches/' + encodeURIComponent(item.id), {method: 'DELETE'}, owner);
+          await loadFavorites();
+        });
+        row.append(apply, remove);
+        favorites.append(row);
+      }
+    } catch {
+      favorites.textContent = 'Buscas favoritas indisponíveis no momento.';
+    }
+  };
+  $('saveDiscovery').onclick = event => busy(event.currentTarget, async () => {
+    const values = filters();
+    await api('/api/discovery/saved-searches', {method: 'POST', body: JSON.stringify({
+      ...values, remote: values.remote === 'true',
+    })}, owner);
+    await loadFavorites();
+  });
+  loadFavorites();
   if (typeof state.query === 'string') {
     const query = new URLSearchParams(state.query);
     if (Array.isArray(state.result?.jobs)) {
@@ -245,8 +359,10 @@ $('deleteAccountForm').onsubmit = event => {
   const confirmation = new FormData(event.currentTarget).get('confirmation');
   busy(event.submitter, async () => {
     await api('/api/account/delete', {method:'POST', body:JSON.stringify({confirmation})}, owner);
-    await client.auth.signOut({scope:'local'});
+    await sessionCall('DELETE');
+    acceptSession(null);
     showSession(null);
+    sessionEvents?.postMessage('changed');
     toast('Conta excluída.');
   });
 };
@@ -258,7 +374,7 @@ function captureDraft(){const f=$('aiForm');if(!f)return;for(const name of Objec
 function aiPayload(){captureDraft();const p={provider:aiDraft.provider,model:aiDraft.model.trim(),task:aiDraft.task,max_output_tokens:Number(aiDraft.max_output_tokens),instruction:aiDraft.instruction,previous_text:aiDraft.previous_text};if(aiDraft.job_id)p.job_id=aiDraft.job_id;if(aiDraft.resume_id)p.resume_id=aiDraft.resume_id;for(const k of ['input_price_per_million','output_price_per_million'])if(aiDraft[k]!=='')p[k]=Number(aiDraft[k]);return p}
 function renderAI(){const external=aiDraft.provider!=='heuristic';$('view').innerHTML=`<div class="notice">A IA usa seu perfil e a vaga selecionada para preparar um rascunho. Confira cada afirmação antes de usar. A análise local não chama provedores externos.</div><div class="grid-two"><div class="card"><div class="section-head"><div><h2>Seu parceiro de preparação</h2><p>Você escolhe o contexto, o modelo e o limite.</p></div><span class="badge">✧ IA sob seu controle</span></div><form id="aiForm"><div class="form-grid"><label>Provedor<select name="provider">${[['heuristic','Local · sem API'],['openai','OpenAI'],['anthropic','Anthropic'],['deepseek','DeepSeek']].map(([v,l])=>`<option value="${v}" ${aiDraft.provider===v?'selected':''}>${l}</option>`).join('')}</select></label><label>Modelo exato<input name="model" value="${esc(aiDraft.model)}" placeholder="Identificador do provedor" ${external?'required':''}><small>Consulte o identificador disponível na sua conta do provedor.</small></label></div><label>O que vamos preparar?<select name="task">${[['evaluate','Avaliar aderência à vaga'],['summary','Resumo profissional'],['cover_letter','Carta de apresentação'],['revise','Revisar um texto']].map(([v,l])=>`<option value="${v}" ${aiDraft.task===v?'selected':''}>${l}</option>`).join('')}</select></label><label>Vaga de contexto<select name="job_id"><option value="">Sem vaga selecionada</option>${jobs.map(j=>`<option value="${esc(j.id)}" ${j.id===aiDraft.job_id?'selected':''}>${esc(j.title)} · ${esc(j.company)}</option>`).join('')}</select></label><label>Currículo de contexto (opcional)<select name="resume_id"><option value="">Usar apenas perfil e vaga</option>${resumes.map(r=>`<option value="${esc(r.id)}" ${r.id===aiDraft.resume_id?'selected':''}>${esc(r.filename)}</option>`).join('')}</select><small>O texto extraído pode ser limitado a 6.000 caracteres pelo servidor. PDF digitalizado pode não conter texto legível.</small></label><label>Orientações adicionais<textarea name="instruction" rows="3" placeholder="Ex.: destaque meus projetos e mantenha o tom objetivo">${esc(aiDraft.instruction)}</textarea></label><label>Texto para revisão (quando aplicável)<textarea name="previous_text" rows="4">${esc(aiDraft.previous_text)}</textarea></label><label>Limite de tokens de saída<input name="max_output_tokens" type="number" min="128" max="2048" step="1" value="${esc(aiDraft.max_output_tokens)}" required><small>Entre 128 e 2.048 tokens. Um limite menor pode cortar a resposta.</small></label><details><summary>Preços para estimativa (opcional)</summary><p class="fine">Preencha os preços atuais do seu provedor em USD por milhão de tokens. A estimativa não representa cobrança nem garante custo máximo real.</p><div class="form-grid"><label>Entrada · USD / 1M<input name="input_price_per_million" type="number" min="0" step="any" value="${esc(aiDraft.input_price_per_million)}"></label><label>Saída · USD / 1M<input name="output_price_per_million" type="number" min="0" step="any" value="${esc(aiDraft.output_price_per_million)}"></label></div></details><button type="submit">1. Estimar antes de gerar</button></form><div id="estimateArea"></div>${aiResult?`<div class="section-head output-head"><h3>Seu rascunho</h3><button id="copyResult" class="small secondary">Copiar texto</button></div><div class="result">${esc(aiResult)}</div>`:''}</div><div><div class="card"><h2>Conexão de IA</h2><p class="muted">Sua chave fica somente na memória desta página. Ela é apagada ao sair ou atualizar a página e enviada ao servidor apenas ao gerar uma resposta.</p><form id="keyForm"><label>Chave de API<input id="apiKeyInput" type="password" autocomplete="off" placeholder="Cole sua chave aqui"></label><div class="row"><button type="submit" class="secondary small">Guardar nesta sessão</button><button id="clearKey" type="button" class="secondary small">Apagar</button></div></form><p class="ai-status" id="keyStatus">${apiKey?'Chave em memória · não validada':'Nenhuma chave nesta sessão'}</p><p class="fine">Guardar a chave não testa nem valida a conexão. Não há tentativas automáticas em caso de falha.</p></div><div class="card"><h2>Histórico</h2><p class="muted">Rascunhos e execuções da sua conta.</p>${history.length?history.slice(0,20).map(h=>`<div class="history-item"><h3>${esc(h.task||'Preparação')} <span class="badge">${esc(h.provider)}</span></h3><p>${date(h.created_at)} · ${esc(h.model||'Local')}${h.cached?' · cache':''}</p><p>Tokens de entrada: ${esc(h.input_tokens??'não informado')} · saída: ${esc(h.output_tokens??'não informado')}<br>Custo estimado: ${h.estimated_cost_usd==null?'não informado':'US$ '+Number(h.estimated_cost_usd).toFixed(6)}${h.estimated_input_tokens!=null?' · entrada estimada: '+esc(h.estimated_input_tokens):''}</p><details><summary>Ver resultado</summary><div class="result">${esc(typeof h.result==='string'?h.result:JSON.stringify(h.result??{},null,2))}</div></details></div>`).join(''):empty('Nenhuma execução ainda','Seus rascunhos aparecerão aqui.')}</div></div></div>`;$('keyForm').onsubmit=e=>{e.preventDefault();apiKey=$('apiKeyInput').value.trim();$('apiKeyInput').value='';$('keyStatus').textContent=apiKey?'Chave em memória · não validada':'Nenhuma chave nesta sessão';toast(apiKey?'Chave guardada apenas nesta página.':'Nenhuma chave informada.')};$('clearKey').onclick=()=>{apiKey='';$('apiKeyInput').value='';$('keyStatus').textContent='Nenhuma chave nesta sessão';toast('Chave apagada.')};$('aiForm').elements.provider.onchange=()=>{captureDraft();estimate=null;estimatePayload=null;renderAI()};$('aiForm').oninput=()=>{estimate=null;estimatePayload=null;$('estimateArea').replaceChildren()};$('aiForm').onsubmit=e=>{e.preventDefault();busy(e.submitter,async()=>{const p=aiPayload();const snapshot=JSON.stringify(p);const owner=session?.user?.id;const data=await api('/api/ai/estimate',{method:'POST',body:snapshot});if(!session||session.user.id!==owner||tab!=='ai'||JSON.stringify(aiPayload())!==snapshot)return;estimate=data;estimatePayload=p;showEstimate()})};if($('copyResult'))$('copyResult').onclick=e=>busy(e.currentTarget,async()=>{await navigator.clipboard.writeText(aiResult);toast('Texto copiado.')})}
 function showEstimate(){if(!estimate)return;const cost=estimate.estimated_max_cost_usd;const external=estimatePayload.provider!=='heuristic';$('estimateArea').innerHTML=`<div class="consent-area notice ${external?'warning':''}"><strong>Estimativa antes de gerar</strong><p>Entrada aproximada: ${esc(estimate.estimated_input_tokens)} tokens · saída limitada a ${esc(estimate.max_output_tokens)} tokens.<br>${cost==null?'Custo não calculado: informe os preços para uma estimativa.':`Custo estimado: até US$ ${Number(cost).toFixed(6)} com os preços informados.`}${estimate.cached?'<br>Resultado disponível em cache.':''}</p><p>${esc(estimate.notice||'Contagens e custos são estimativas; a cobrança real é definida pelo provedor.')}</p><label class="check"><input type="checkbox" id="aiConsent"> <span>${external?`Autorizo enviar meu perfil, a vaga selecionada, o currículo selecionado (texto extraído limitado) e os textos acima ao provedor ${esc(estimatePayload.provider)} para esta execução. Entendo que podem existir cobranças.`:'Confirmo que o contexto selecionado pode ser usado para gerar este rascunho local.'}</span></label><button id="generateAI" disabled>2. Gerar rascunho</button></div>`;$('aiConsent').onchange=()=>{$('generateAI').disabled=!$('aiConsent').checked};$('generateAI').onclick=e=>busy(e.currentTarget,async()=>{if(!estimatePayload||!$('aiConsent').checked)throw Error('Faça uma nova estimativa e confirme o envio.');if(external&&!apiKey)throw Error('Guarde sua chave de API nesta sessão antes de gerar.');const owner=session?.user?.id;const data=await api('/api/ai/run',{method:'POST',body:JSON.stringify({...estimatePayload,...(external?{api_key:apiKey}:{})})});if(!session||session.user.id!==owner)return;const nextResult=typeof data.result==='string'?data.result:JSON.stringify(data.result,null,2);const nextHistory=await api('/api/ai/history');if(!session||session.user.id!==owner)return;aiResult=nextResult;estimate=null;estimatePayload=null;history=nextHistory;if(tab==='ai')renderAI();toast(data.cached?'Rascunho recuperado do cache.':'Rascunho gerado. Revise antes de usar.')})}
-function renderCapture(){$('view').innerHTML=`<div class="hero"><span class="eyebrow">LEVE SEU RADAR COM VOCÊ</span><h2>Encontrou uma boa vaga?<br>Guarde no CareerOS.</h2><p>Capture oportunidades durante sua pesquisa e organize as próximas etapas no seu espaço pessoal.</p><a class="button" href="/api/extension.zip" download>↓ Baixar extensão Chrome</a></div><div class="card"><h2>Instalar e conectar</h2><div class="steps" style="margin-top:24px"><div class="step"><span class="step-number">01</span><div><h3>Extraia o arquivo baixado</h3><p>Mantenha a pasta da extensão no seu computador.</p></div></div><div class="step"><span class="step-number">02</span><div><h3>Abra chrome://extensions</h3><p>Ative o modo de desenvolvedor, escolha “Carregar sem compactação” e selecione a pasta.</p></div></div><div class="step"><span class="step-number">03</span><div><h3>Conecte à sua conta</h3><p>Informe na extensão o endereço deste site: <strong>${esc(location.origin)}</strong>. Copie abaixo seu token de sessão e cole no campo indicado na extensão.</p></div></div></div><div class="notice warning" style="margin-top:24px">O token concede acesso à sua conta. Mantenha-o privado e cole somente na extensão CareerOS instalada por você. Ele expira; copie um novo token quando precisar reconectar. A extensão mantém o token apenas durante a sessão do navegador.</div><button id="copyToken" class="secondary">Copiar token da sessão</button><p class="fine">Abra uma página de vaga, revise os campos capturados e salve. Você também pode cadastrar vagas manualmente.</p></div>`;$('copyToken').onclick=e=>busy(e.currentTarget,async()=>{const {data,error}=await client.auth.getSession();if(error||!data.session)throw Error('Sessão indisponível. Entre novamente.');await navigator.clipboard.writeText(data.session.access_token);toast('Token copiado. Cole somente na extensão CareerOS.')})}
+function renderCapture(){$('view').innerHTML=`<div class="hero"><span class="eyebrow">LEVE SEU RADAR COM VOCÊ</span><h2>Encontrou uma boa vaga?<br>Guarde no CareerOS.</h2><p>Capture oportunidades durante sua pesquisa e organize as próximas etapas no seu espaço pessoal.</p><a class="button" href="/api/extension.zip" download>↓ Baixar extensão Chrome</a></div><div class="card"><h2>Instalar e conectar</h2><div class="steps" style="margin-top:24px"><div class="step"><span class="step-number">01</span><div><h3>Extraia o arquivo baixado</h3><p>Mantenha a pasta da extensão no seu computador.</p></div></div><div class="step"><span class="step-number">02</span><div><h3>Abra chrome://extensions</h3><p>Ative o modo de desenvolvedor, escolha “Carregar sem compactação” e selecione a pasta.</p></div></div><div class="step"><span class="step-number">03</span><div><h3>Conecte à sua conta</h3><p>Informe na extensão o endereço deste site: <strong>${esc(location.origin)}</strong>. Copie abaixo seu token de sessão e cole no campo indicado na extensão.</p></div></div></div><div class="notice warning" style="margin-top:24px">O token concede acesso à sua conta. Mantenha-o privado e cole somente na extensão CareerOS instalada por você. Ele expira; copie um novo token quando precisar reconectar. A extensão mantém o token apenas durante a sessão do navegador.</div><button id="copyToken" class="secondary">Copiar token da sessão</button><p class="fine">Abra uma página de vaga, revise os campos capturados e salve. Você também pode cadastrar vagas manualmente.</p></div>`;$('copyToken').onclick=e=>busy(e.currentTarget,async()=>{const active=await currentSession();if(!active)throw Error('Sessão indisponível. Entre novamente.');await navigator.clipboard.writeText(active.access_token);toast('Token copiado. Cole somente na extensão CareerOS.')})}
 $('closeJob').onclick = $('cancelJob').onclick = () => $('jobDialog').close();
 $('jobForm').onsubmit = event => {
   event.preventDefault();
@@ -287,7 +403,7 @@ $('jobForm').onsubmit = event => {
     toast('Vaga salva.');
   });
 };
-$('logout').onclick=e=>busy(e.currentTarget,async()=>{apiKey='';aiResult='';const {error}=await client.auth.signOut();if(error)throw error;showSession(null);toast('Você saiu da conta.')});$('mobileLogout').onclick=()=>$('logout').click();window.addEventListener('hashchange',setTab);
+$('logout').onclick=e=>busy(e.currentTarget,async()=>{apiKey='';aiResult='';await endSession();toast('Você saiu da conta.')});$('mobileLogout').onclick=()=>$('logout').click();window.addEventListener('hashchange',setTab);
 const authReturn = new URLSearchParams(location.hash.slice(1));
 let recovery = authReturn.get('type') === 'recovery';
 const signupReturn = authReturn.get('type') === 'signup' && authReturn.has('access_token');
@@ -319,67 +435,75 @@ function showSignupWelcome(openDashboard) {
     if (!config.configured || !window.supabase) throw Error('Login indisponível neste ambiente.');
     const redirectTo = location.origin + '/';
     client = window.supabase.createClient(config.supabase_url, config.supabase_anon_key, {
-      auth: {persistSession: true, autoRefreshToken: true, detectSessionInUrl: true},
+      auth: {persistSession: false, autoRefreshToken: false, detectSessionInUrl: true},
     });
     const authView = window.mountCareerAuth(client, redirectTo);
-    const applySession = next => {
-      if (recovery && next) {
-        showSession(null);
-        authView.recover();
-      } else {
-        recovery = false;
-        showSession(next);
-      }
+    const startSession = async (temporary, remember = false) => {
+      const next = acceptSession(await sessionCall('POST', {refresh_token: temporary.refresh_token, remember}));
+      if (!next) throw Error('Não foi possível iniciar sua sessão.');
+      showSession(next);
+      sessionEvents?.postMessage('changed');
+      return next;
     };
+    authView.onSignedIn(startSession);
     authView.onRecovered(async () => {
+      const {data, error} = await client.auth.getSession();
+      if (error || !data.session) throw Error('Sessão de recuperação indisponível.');
+      await startSession(data.session);
       recovery = false;
-      const {data} = await client.auth.getSession();
-      showSession(data.session);
       toast('Senha atualizada.');
     });
-    let initializing = true;
-    let awaitingWelcome = false;
-    client.auth.onAuthStateChange((event, next) => {
+    client.auth.onAuthStateChange(event => {
       if (event === 'PASSWORD_RECOVERY') recovery = true;
-      if (initializing || awaitingWelcome) return;
-      if (['PASSWORD_RECOVERY', 'SIGNED_IN', 'INITIAL_SESSION', 'SIGNED_OUT'].includes(event)) {
-        setTimeout(() => applySession(next), 0);
-      } else if (event === 'TOKEN_REFRESHED' && !recovery) {
-        session = next;
-      }
     });
     setTab();
     const {data, error} = await client.auth.getSession();
     if (error) throw error;
+    let remember = false;
+    try {
+      if (data.session && !recovery && !signupReturn) remember = sessionStorage.getItem('careeros.oauth.remember') === 'true';
+      sessionStorage.removeItem('careeros.oauth.remember');
+    } catch {}
     if (signupReturn && data.session && !recovery) {
       const verified = await client.auth.getUser();
       if (verified.error || verified.data.user?.id !== data.session.user.id ||
           !verified.data.user.email_confirmed_at) {
         throw Error('Não foi possível confirmar a conta.');
       }
-      awaitingWelcome = true;
       showSignupWelcome(async () => {
-        const {data: latest, error: sessionError} = await client.auth.getSession();
-        awaitingWelcome = false;
-        finishAuthTransition();
-        const next = !sessionError && latest.session?.user.id === verified.data.user.id
-          ? latest.session : null;
-        showSession(next);
-        if (next) {
+        try {
+          await startSession(data.session);
           $('pageTitle').setAttribute('tabindex', '-1');
           $('pageTitle').focus();
-        } else {
-          toast('Sua sessão expirou. Entre novamente.', true);
+        } catch (error) {
+          showSession(null);
+          toast(error.message, true);
+        } finally {
+          finishAuthTransition();
         }
       });
     } else {
+      if (recovery && data.session) {
+        showSession(null);
+        authView.recover();
+      } else if (data.session) {
+        await startSession(data.session, remember);
+      } else {
+        const legacyKey = 'sb-' + new URL(config.supabase_url).hostname.split('.')[0] + '-auth-token';
+        let legacy;
+        try { legacy = JSON.parse(localStorage.getItem(legacyKey)); } catch {}
+        const active = acceptSession(await sessionCall('POST', {}));
+        if (active) showSession(active);
+        else if (legacy?.refresh_token && !recovery) {
+          try { await startSession(legacy); } catch { showSession(null); }
+        } else showSession(null);
+        try { localStorage.removeItem(legacyKey); } catch {}
+      }
       finishAuthTransition();
-      applySession(data.session);
       if (!data.session && (signupReturn || authReturn.has('error'))) {
         toast('O link não pôde ser validado. Entre ou solicite um novo link.', true);
       }
     }
-    initializing = false;
     const availability = await fetch('/api/auth/providers').then(r => r.json()).catch(() => null);
     authView.providers(Array.isArray(availability?.providers) ? availability.providers : []);
   } catch {
@@ -394,9 +518,9 @@ function renderData(){
  $('view').innerHTML=`<div class="card"><h2>Uma cópia dos seus dados</h2><p>Exporte o perfil, todas as vagas, o histórico de IA e os currículos armazenados na sua conta.</p><p>O ZIP contém os arquivos originais, registros em JSON e um manifesto de integridade SHA-256. Chaves de IA e tokens de acesso não são incluídos.</p><div class="notice">O arquivo contém dados pessoais e não é criptografado. Guarde-o em um dispositivo seu e não o publique. Evite editar a conta em outras abas durante a exportação.</div><p class="fine">Limite: 64 MiB e 10.000 registros por categoria. A exportação é manual e não substitui backup automático do servidor. A importação/restauração cloud ainda não está disponível.</p><button id="exportAccount">Baixar minha cópia em ZIP</button></div>`;
  $('exportAccount').onclick=e=>busy(e.currentTarget,async()=>{
   const owner=session?.user.id;
-  const {data,error}=await client.auth.getSession();
-  if(error||!data.session||data.session.user.id!==owner)throw Error('Entre novamente na sua conta antes de exportar.');
-  const response=await fetch('/api/workspace/export.zip',{headers:{Authorization:`Bearer ${data.session.access_token}`}});
+  const active=await currentSession();
+  if(!active||active.user.id!==owner)throw Error('Entre novamente na sua conta antes de exportar.');
+  const response=await fetch('/api/workspace/export.zip',{headers:{Authorization:`Bearer ${active.access_token}`}});
   if(!response.ok){const problem=await response.json().catch(()=>({}));throw Error(typeof problem.detail==='string'?problem.detail:'Não foi possível exportar os dados.');}
   const blob=await response.blob();
   if(session?.user.id!==owner)return;

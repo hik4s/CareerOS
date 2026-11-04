@@ -4,6 +4,7 @@ import httpx
 from app.cloud import discovery
 from app.cloud.auth import User, require_user
 from app.cloud.main import app
+from app.cloud.store import get_store
 
 
 def test_discovery_requires_a_session(monkeypatch):
@@ -258,3 +259,34 @@ def test_search_reuses_snapshot_while_one_refresh_runs(monkeypatch):
         await asyncio.gather(task, return_exceptions=True)
 
     asyncio.run(scenario())
+
+
+def test_saved_searches_are_scoped_to_authenticated_account():
+    calls = []
+    owner = User('owner', None, 'token')
+    search_id = 'af195512-52d8-4755-a8c6-f3e955c07d0a'
+
+    class Store:
+        user = owner
+
+        async def rows(self, table, **filters):
+            assert table == 'cloud_saved_searches'
+            return [{'id': search_id, 'q': 'Python', 'location': '', 'remote': True}]
+
+        async def request(self, method, path, **options):
+            calls.append((method, path, options))
+
+    app.dependency_overrides[require_user] = lambda: owner
+    app.dependency_overrides[get_store] = Store
+    try:
+        with TestClient(app) as client:
+            route = '/api/discovery/saved-searches'
+            assert client.post(route, json={'q': ' Python ', 'remote': True}).status_code == 204
+            assert client.get(route).json()[0]['q'] == 'Python'
+            assert client.delete(route + '/' + search_id).status_code == 204
+        assert calls[0][2]['json']['user_id'] == 'owner'
+        assert calls[0][2]['json']['q'] == 'Python'
+        assert calls[1][2]['params'] == {'id': 'eq.' + search_id, 'user_id': 'eq.owner'}
+    finally:
+        app.dependency_overrides.pop(require_user, None)
+        app.dependency_overrides.pop(get_store, None)
