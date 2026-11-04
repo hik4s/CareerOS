@@ -4,6 +4,10 @@ Em **Buscar vagas**, use palavras-chave, localização, modalidade e nível.
 Para remoto no Brasil, combine a modalidade **Remoto** com **Brasil** na
 localização. Vagas remotas sem região informada ficam disponíveis sem esse
 filtro. Modalidade e nível dependem dos dados publicados pela fonte.
+Marque **Buscar palavras-chave somente no título** para exigir que todos
+os termos relevantes apareçam no cargo, incluindo equivalentes como
+estágio e intern. Na busca ampla, os resultados indicam se os termos
+estão no título, nos detalhes ou se a vaga foi sugerida pela fonte.
 Os resultados aparecem em uma lista paginada. Use **Ver detalhes** para ler
 a descrição e **Revisar e salvar** para adicionar a oportunidade a **Minhas vagas**.
 O link de candidatura abre a página da vaga no site de origem.

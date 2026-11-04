@@ -133,19 +133,27 @@ def matches_location(job, where, model):
     return not where or where in re.sub(r'\bbrazil\b', 'brasil', place)
 
 
-def relevance(job, terms, *, provider_matched=False):
+def relevance(job, terms, *, title_only=False, provider_matched=False):
     title, company = folded(job['title']), folded(job['company'])
     score = 0
+    scope = 'title' if terms else ''
     for term in terms:
         if term.search(title):
             score += 12
-        elif term.search(company):
+            continue
+        if title_only:
+            return None
+        if scope == 'title':
+            scope = 'details'
+        if term.search(company):
             score += 5
         elif term.search(job['search_text']):
             score += 1
-        elif not provider_matched:
+        elif provider_matched:
+            scope = 'provider'
+        else:
             return None
-    return score
+    return score, scope
 
 
 def duplicate_keys(job):
@@ -630,6 +638,7 @@ async def discover_jobs(q: str = Query('', max_length=120),
                         location: str = Query('', max_length=100),
                         remote: bool = False,
                         page: int = Query(1, ge=1),
+                        title_only: bool = False,
                         work_model: Literal['', 'remote', 'hybrid', 'onsite'] = '',
                         level: Literal['', 'intern', 'trainee', 'junior', 'mid', 'senior'] = ''):
     requested_model = work_model or ('remote' if remote else '')
@@ -684,11 +693,12 @@ async def discover_jobs(q: str = Query('', max_length=120),
                 continue
             if not matches_location(job, where, model) and (name != 'Jooble' or where == 'brasil'):
                 continue
-            score = relevance(job, terms, provider_matched=name == 'Jooble')
-            if score is not None:
-                candidates.append((score, status, job, model))
+            match = relevance(job, terms, title_only=title_only, provider_matched=name == 'Jooble')
+            if match is not None:
+                score, scope = match
+                candidates.append((score, status, job, model, scope))
     results, seen = [], set()
-    for _, status, job, model in sorted(candidates, key=lambda item: -item[0]):
+    for _, status, job, model, scope in sorted(candidates, key=lambda item: -item[0]):
         identities = tuple(duplicate_keys(job))
         if seen.intersection(identities):
             continue
@@ -697,6 +707,7 @@ async def discover_jobs(q: str = Query('', max_length=120),
         results.append({
             **{key: value for key, value in job.items() if key != 'search_text'},
             'work_model': model, 'remote': model == 'remote',
+            'match_scope': scope,
             'unconfirmed': not status['available'] and bool(status.get('updated_at')),
         })
     page = min(page, max(1, (len(results) + PAGE_SIZE - 1) // PAGE_SIZE))

@@ -108,6 +108,11 @@ def test_search_ranks_intern_title_before_description_and_filters_remote_brazil(
                 'q': 'estágio em dados', 'location': 'São Paulo',
             }).json()
             assert result['jobs'][0]['title'] == 'Data Intern'
+            assert [job['match_scope'] for job in result['jobs']] == ['title', 'details']
+            result = client.get('/api/discovery/jobs', params={
+                'q': 'estágio em dados', 'location': 'São Paulo', 'title_only': True,
+            }).json()
+            assert [job['title'] for job in result['jobs']] == ['Data Intern']
             result = client.get('/api/discovery/jobs', params={
                 'q': 'python', 'location': 'Brasil', 'work_model': 'remote', 'level': 'junior',
             }).json()
