@@ -232,3 +232,29 @@ def test_sitemap_updates_good_postings_and_preserves_only_failed_pages(monkeypat
     jobs, partial = asyncio.run(discovery.career_jobs(*discovery.ONJOB, previous=previous))
     assert partial
     assert [job['title'] for job in jobs] == ['Atualizada', 'Mantida']
+
+
+def test_search_reuses_snapshot_while_one_refresh_runs(monkeypatch):
+    import asyncio
+
+    calls = []
+    jobs = [{'url': 'https://example.com/job/1'}]
+    monkeypatch.setattr(discovery, '_cache', {'brex': discovery.Snapshot(0, jobs, True, '2026-11-04')})
+    monkeypatch.setattr(discovery, '_refresh_tasks', {})
+
+    async def slow_feed(key):
+        calls.append(key)
+        await asyncio.sleep(60)
+
+    monkeypatch.setattr(discovery, 'get_feed', slow_feed)
+
+    async def scenario():
+        assert await discovery.search_feed('brex') == (jobs, True, True)
+        assert await discovery.search_feed('brex') == (jobs, True, True)
+        await asyncio.sleep(0)
+        assert calls == ['brex']
+        task = discovery._refresh_tasks['brex']
+        task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
+
+    asyncio.run(scenario())

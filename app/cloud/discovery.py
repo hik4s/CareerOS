@@ -34,6 +34,7 @@ PAGE_SIZE = 20
 CACHE_TTL = 300
 MAX_FEED_BYTES = 5 * 1024 * 1024
 _cache = {}
+_refresh_tasks = {}
 _locks = {key: asyncio.Lock() for key in FEEDS}
 _locks.update(gupy=asyncio.Lock(), careers=asyncio.Lock(), employer=asyncio.Lock(),
               syndication=asyncio.Lock())
@@ -392,6 +393,7 @@ async def get_feed(key, gupy_url='', gupy_token='', *, force=False):
         cached = _cache.get(key)
         if cached is None:
             cached = await asyncio.to_thread(read_snapshot, key)
+            _cache[key] = cached
         if not force and time.monotonic() < cached.expires:
             return cached.jobs, cached.available
         try:
@@ -423,17 +425,42 @@ async def get_feed(key, gupy_url='', gupy_token='', *, force=False):
         return snapshot.jobs, snapshot.available
 
 
+def finish_refresh(key, task):
+    if _refresh_tasks.get(key) is task:
+        _refresh_tasks.pop(key)
+    if not task.cancelled() and task.exception():
+        logging.getLogger(__name__).warning('Unexpected job catalog refresh failure for %s', key)
+
+
+async def search_feed(key, *args):
+    cached = _cache.get(key)
+    if cached and time.monotonic() < cached.expires:
+        return cached.jobs, cached.available, False
+    task = _refresh_tasks.get(key)
+    if task is None:
+        task = asyncio.create_task(get_feed(key, *args))
+        _refresh_tasks[key] = task
+        task.add_done_callback(lambda done: finish_refresh(key, done))
+    if not cached or cached.updated_at is None:
+        await asyncio.wait([task], timeout=1.25)
+    if task.done() and not task.cancelled() and task.exception() is None:
+        jobs, available = task.result()
+        return jobs, available, False
+    cached = _cache.get(key)
+    return (cached.jobs if cached else [], bool(cached and cached.available), not task.done())
+
+
 async def refresh_catalog():
     while True:
         await asyncio.sleep(CACHE_TTL)
         settings = gupy_settings()
-        tasks = [get_feed(key) for key in (*FEEDS, 'careers')]
+        tasks = [search_feed(key) for key in (*FEEDS, 'careers')]
         if employer_settings():
-            tasks.append(get_feed('employer'))
+            tasks.append(search_feed('employer'))
         if syndication_settings():
-            tasks.append(get_feed('syndication'))
+            tasks.append(search_feed('syndication'))
         if settings:
-            tasks.append(get_feed('gupy', *settings))
+            tasks.append(search_feed('gupy', *settings))
         outcomes = await asyncio.gather(*tasks, return_exceptions=True)
         if any(isinstance(outcome, Exception) for outcome in outcomes):
             logging.getLogger(__name__).warning('Unexpected job catalog refresh failure')
@@ -448,6 +475,10 @@ async def discovery_lifespan(app):
         task.cancel()
         with suppress(asyncio.CancelledError):
             await task
+        pending = list(_refresh_tasks.values())
+        for refresh in pending:
+            refresh.cancel()
+        await asyncio.gather(*pending, return_exceptions=True)
 
 
 async def search_jooble(key, query, location, remote):
@@ -484,9 +515,10 @@ async def search_jooble(key, query, location, remote):
 
 async def jooble_feed(key, query, location, remote):
     try:
-        return await search_jooble(key, query, location, remote)
+        jobs, available = await search_jooble(key, query, location, remote)
+        return jobs, available, False
     except TimeoutError:
-        return [], False
+        return [], False, False
 
 
 @router.get('/jobs')
@@ -495,25 +527,25 @@ async def discover_jobs(q: str = Query('', max_length=120),
                         remote: bool = False,
                         page: int = Query(1, ge=1)):
     names = [feed[0] for feed in FEEDS.values()]
-    requests = [get_feed(key) for key in FEEDS]
+    requests = [search_feed(key) for key in FEEDS]
     keys = [*FEEDS, 'careers']
     names.append(ONJOB[0])
-    requests.append(get_feed('careers'))
+    requests.append(search_feed('careers'))
     employer = employer_settings()
     if employer:
         keys.append('employer')
         names.append(employer[0])
-        requests.append(get_feed('employer'))
+        requests.append(search_feed('employer'))
     syndication = syndication_settings()
     if syndication:
         keys.append('syndication')
         names.append(syndication[0])
-        requests.append(get_feed('syndication'))
+        requests.append(search_feed('syndication'))
     settings = gupy_settings()
     if settings:
         keys.append('gupy')
         names.append('Gupy')
-        requests.append(get_feed('gupy', *settings))
+        requests.append(search_feed('gupy', *settings))
     jooble_key = os.getenv('CAREEROS_JOOBLE_BR_API_KEY', '').strip()
     if jooble_key and q.strip():
         names.append('Jooble')
@@ -522,8 +554,10 @@ async def discover_jobs(q: str = Query('', max_length=120),
     words = folded(q).split()
     where = re.sub(r'\bbrazil\b', 'brasil', folded(location.strip()))
     results, seen, sources = [], set(), []
-    for index, (name, (jobs, ok)) in enumerate(zip(names, feeds)):
+    for index, (name, (jobs, ok, refreshing)) in enumerate(zip(names, feeds)):
         status = {'name': name, 'available': ok}
+        if refreshing:
+            status['refreshing'] = True
         snapshot = _cache.get(keys[index]) if index < len(keys) else None
         if snapshot and snapshot.updated_at:
             status['updated_at'] = snapshot.updated_at
