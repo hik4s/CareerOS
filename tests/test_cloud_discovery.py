@@ -86,6 +86,33 @@ def test_jsearch_ingests_only_links_from_the_expected_portal(monkeypatch):
     assert 'via LinkedIn' in calls[0][3]['params']['query']
 
 
+def test_aggregators_normalize_google_and_linkedin_results(monkeypatch):
+    import asyncio
+
+    async def fetch(method, url, field, **options):
+        if options['params']['engine'] == 'linkedin_jobs':
+            return [{'title': 'Estágio Python', 'company_name': 'Empresa', 'location': 'São Paulo',
+                     'link': 'https://br.linkedin.com/jobs/view/estagio-123'}]
+        return [{'title': 'Estágio Python', 'company_name': 'Empresa', 'location': 'São Paulo',
+                 'description': 'Requisitos: Python',
+                 'apply_options': [{'link': 'https://www.indeed.com.br/viewjob?jk=abc'}],
+                 'apply_links': [{'link': 'https://www.indeed.com.br/viewjob?jk=abc'}]}]
+
+    monkeypatch.setattr(discovery, 'fetch_rows', fetch)
+    for key, source in (('serpapi_google', 'Indeed via SerpApi'),
+                        ('searchapi_google', 'Indeed via SearchApi'),
+                        ('searchapi_linkedin', 'LinkedIn via SearchApi')):
+        job, = asyncio.run(discovery.aggregator_jobs(key, 'test-key'))
+        assert job['source'] == source
+        assert job['title'] == 'Estágio Python'
+
+
+def test_linkedin_aliases_share_the_same_deduplication_key():
+    first = {'url': 'https://br.linkedin.com/jobs/view/estagio-python-123?trk=feed', 'description': ''}
+    second = {'url': 'https://www.linkedin.com/jobs/view/123?utm_source=google', 'description': ''}
+    assert set(discovery.duplicate_keys(first)) & set(discovery.duplicate_keys(second))
+
+
 def test_search_matches_description_and_paginates(monkeypatch):
     rows = [
         discovery.normalize({
