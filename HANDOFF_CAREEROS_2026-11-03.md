@@ -1,4 +1,7 @@
-# CareerOS — handoff completo da sessão de 03/11/2026
+# CareerOS — repasse atualizado em 04/11/2026
+
+Para retomar o desenvolvimento, comece pelo [estado atual e próximos passos](#22-estado-atual-em-04112026).
+As seções 1 a 21 registram a evolução até a primeira versão da busca web.
 
 Este arquivo reúne decisões, entregas, infraestrutura, validações, limitações e
 próximos passos. Complementa os documentos históricos; nenhum foi apagado.
@@ -528,3 +531,116 @@ A rota autenticada /api/discovery/jobs agrega quadros públicos Greenhouse de
 Grupo QuintoAndar e Brex e o feed Arbeitnow. LinkedIn, Gupy, InfoJobs, Indeed
 e demais portais aparecem como links externos. Nenhuma chave de terceiros
 foi configurada. A consulta real de teste encontrou vagas em São Paulo.
+
+## 22. Estado atual em 04/11/2026
+
+### Produção e operação
+
+- O [CareerOS Cloud](https://careeros-v1.onrender.com) é a versão web
+  multiusuário. O aplicativo local para Windows e suas extensões têm fluxos
+  próprios no mesmo repositório.
+- O Render serve a branch `main` de [hik4s/CareerOS](https://github.com/hik4s/CareerOS).
+  Em 04/11, o commit de aplicação ativo era `81d6c90`, do PR #13, com o
+  [deploy confirmado como live](https://dashboard.render.com/web/srv-dbkv4rajnfac73a26hig/deploys/dep-dblk6rjncjis73e3f240).
+  `GET /api/health` respondeu 200 com `configured: true` e versão `1.1.1`.
+  A busca sem sessão respondeu 401. Vários commits compartilham esse número
+  de versão, por isso confira o SHA ativo para identificar a entrega.
+- O Render está configurado para deploy automático por commit, mas os merges
+  recentes precisaram de disparo manual. Consulte os deploys antes de iniciar
+  outro, confirme o SHA e o estado `live` e teste o serviço público.
+- A base cloud usa FastAPI, frontend estático, React para a tela de acesso
+  e Supabase para autenticação, dados e arquivos. O serviço Render usa o
+  plano gratuito. O cache de vagas fica em memória e no disco efêmero,
+  sujeito a perda em reinícios ou novos deploys.
+- Na versão publicada, o navegador usa a sessão do Supabase e as rotas
+  autenticadas aceitam Bearer, inclusive para a extensão cloud. O PR de
+  cookies e favoritos está separado e descrito abaixo.
+- Para trabalhar na busca, os pontos de entrada são `app/cloud/discovery.py`,
+  `app/cloud/proximity.py` e `app/cloud/static/app.js`. A suíte da nuvem
+  está em `tests/test_cloud*.py`, com comandos reproduzíveis no
+  [workflow Cloud checks](.github/workflows/cloud-ci.yml).
+  Alterações na tela React de login exigem recompilar o bundle em
+  `frontend/auth` com `npm ci` e `npm run build`.
+
+As decisões de produto continuam sendo cadastro aberto com isolamento por
+conta, infraestrutura sem custo inicial, português do Brasil e IA opcional
+com a chave do próprio usuário. Currículos e respostas devem preservar
+fatos reais. Candidaturas, termos e etapas eliminatórias exigem revisão
+humana. Consulte a seção 2 para os limites aprovados.
+
+### Busca e leitura publicadas
+
+| Entrega | Referência |
+| --- | --- |
+| Catálogo unificado, importação por link, sitemaps, RSS e Atom, com retenção da última coleta em caso de falha | [PR #5](https://github.com/hik4s/CareerOS/pull/5) |
+| Compatibilidade com abas antigas que ainda esperam o campo `portals` | [PR #6](https://github.com/hik4s/CareerOS/pull/6) |
+| Restauração de filtros, página e resultados na mesma aba com `sessionStorage` e atualização em segundo plano | [PR #7](https://github.com/hik4s/CareerOS/pull/7) |
+| Ranking pelo título, filtros de nível e modalidade, remoto elegível para o Brasil, raio por cidade, deduplicação e vencimento | [PR #9](https://github.com/hik4s/CareerOS/pull/9) |
+| Grupos separados por vírgula como alternativas, com os termos dentro de cada grupo exigidos juntos | [PR #10](https://github.com/hik4s/CareerOS/pull/10) |
+| Título clicável e janela ampla de leitura na busca e nas vagas salvas | [PR #11](https://github.com/hik4s/CareerOS/pull/11) |
+| Seções, listas, navegação interna, fechamento pelo fundo, tradução no navegador e quatro fontes com anúncios em português | [PR #12](https://github.com/hik4s/CareerOS/pull/12) |
+| JSearch, SerpApi, SearchApi e deduplicação por identificador de vaga do LinkedIn e Indeed | [PR #13](https://github.com/hik4s/CareerOS/pull/13) |
+
+- A busca filtra os catálogos disponíveis, pagina em grupos de 20 e indica
+  fontes em atualização, indisponíveis ou com coleta parcial. O raio usa
+  distâncias em linha reta entre centros de cidades e preserva os filtros
+  de texto, nível e modalidade. A relevância vem antes da distância.
+- As fontes padrão são os quadros públicos Greenhouse listados no
+  [guia de busca](docs/BUSCA_DE_VAGAS.md), Arbeitnow e OnJob.io. A coleta
+  real do OnJob.io retornou 30 vagas com descrição. RD Station, ília,
+  Banco PAN e Zup Innovation retornaram 47 anúncios no total na verificação,
+  incluindo anúncios originalmente em português.
+- A janela da vaga conserva o original e organiza as seções identificáveis.
+  A preferência de idioma fica no navegador, por conta. A tradução usa
+  APIs nativas em navegadores compatíveis, com português genérico como
+  alternativa quando a variante brasileira está indisponível. O fluxo foi
+  testado no Edge com APIs simuladas. Faltam a homologação do modelo real
+  e a verificação do fluxo autenticado em produção.
+
+### Configuração e pendências de integração
+
+| Fonte | Variáveis do servidor | Situação |
+| --- | --- | --- |
+| Gupy | `CAREEROS_GUPY_FEED_URL` e `CAREEROS_GUPY_FEED_TOKEN` | Conector implementado. Exige parceria aprovada e feed autorizado. |
+| Jooble Brasil | `CAREEROS_JOOBLE_BR_API_KEY` | Conector implementado. Exige chave regional e validação de resultados reais. |
+| LinkedIn, Indeed e Glassdoor via JSearch | `CAREEROS_JSEARCH_API_KEY` | Código publicado. Ativação e cobertura real ainda não confirmadas. |
+| Google Jobs via SerpApi | `CAREEROS_SERPAPI_API_KEY` | Código publicado. Ativação e cobertura real ainda não confirmadas. |
+| Google Jobs e LinkedIn via SearchApi | `CAREEROS_SEARCHAPI_API_KEY` | Código publicado. Ativação e cobertura real ainda não confirmadas. |
+| Página de carreira ou RSS/Atom autorizado | `CAREEROS_EMPLOYER_SITEMAP_URL`, `CAREEROS_EMPLOYER_JOB_PATH_PREFIX` ou `CAREEROS_JOB_FEED_URL` | Suporte publicado. A configuração depende da fonte escolhida. |
+
+Os novos agregadores coletam diariamente um recorte de estágios de tecnologia
+no Brasil. A cobertura depende da indexação de cada fornecedor. O Jooble
+consulta por pesquisa e usa cache. Configure chaves autorizadas somente no
+ambiente do Render. Confira as cotas e a autorização de exibição antes de
+ativar. A extensão cloud já captura anúncios individuais abertos pelo
+usuário, incluindo LinkedIn, Indeed e Gupy, para salvar em **Minhas vagas**.
+
+### Próximas melhorias em ordem de prioridade
+
+1. **Validar os agregadores com dados reais.** Ativar um por vez e comparar
+   as mesmas consultas, incluindo `estágio Python São Paulo` e
+   `estágio em TI remoto Brasil`. Medir vagas únicas relevantes na primeira
+   página, proporção de anúncios em português, links válidos, datas, tempo
+   de resposta e uso da cota. Usar o resultado para escolher as fontes.
+2. **Homologar a busca publicada.** Testar com login no Render a busca,
+   proximidade, restauração após recarregar, importação, salvamento e
+   tradução com o modelo real. Manter consultas de referência para detectar
+   regressões de ranking. Melhorar a indicação de fontes desativadas,
+   vazias ou limitadas por cota conforme necessário.
+3. **Revisar e integrar sessões e favoritos.** O
+   [PR #8](https://github.com/hik4s/CareerOS/pull/8) está em rascunho e ficou
+   atrás da `main`. Reconciliar as mudanças na tela de busca, revisar e
+   aplicar a migração `cloud_saved_searches` no Supabase antes de publicar
+   os endpoints e verificar isolamento por conta. Homologar login por
+   e-mail, OAuth, confirmação, recuperação, logout, renovação do cookie
+   em abas concorrentes e favoritos em dois dispositivos.
+4. **Criar uma fila assistida de candidaturas.** Adicionar seleção múltipla
+   em **Minhas vagas**, fila persistida e preparação de currículo e
+   respostas por vaga. A primeira versão deve permitir revisar, abrir a
+   candidatura no portal e registrar o envio manual de cada vaga. Preservar
+   a revisão humana e as regras de consentimento BYOK.
+5. **Melhorar a operação e verificar regressões do Windows.** Investigar
+   o disparo automático do Render e corrigir os dois testes conhecidos de
+   backup SQLite no Windows. Preservar o plano gratuito e os dados do
+   usuário. A suíte cloud mais recente passou com 84 testes. A suíte
+   completa não foi revalidada no último deploy.
