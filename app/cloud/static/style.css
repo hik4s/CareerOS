@@ -16,7 +16,6 @@
 .discover-form button{justify-self:end}
 .discover-check{display:flex;align-items:center;gap:8px}
 .discover-check input{width:auto;margin:0}
-.discover-portals{display:flex;gap:8px;flex-wrap:wrap}
 #discoverStatus:not(:empty){margin:16px 0;color:#626984}
 #discoverResults .job{margin-top:12px}
 @media(max-width:640px){.discover-form{grid-template-columns:1fr}.discover-form button{justify-self:stretch}}

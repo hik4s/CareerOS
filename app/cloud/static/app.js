@@ -21,7 +21,7 @@ function jobCard(j){const a=j.analysis||{};const url=safeURL(j.url);return `<art
 function renderDiscovery() {
   $('view').innerHTML = `<div class="hero">
     <span class="eyebrow">EXPLORE OPORTUNIDADES</span><h2>Encontre sua próxima vaga</h2>
-    <p>Consulte os resultados das fontes integradas ou abra a busca no portal de sua preferência.</p>
+    <p>Pesquise, leia as descrições e salve oportunidades em Minhas vagas.</p>
   </div>
   <div class="card"><form id="discoverForm" class="discover-form">
     <label>Cargo ou palavra-chave<input name="q" maxlength="120" placeholder="Ex.: estágio, Python, design"></label>
@@ -29,36 +29,61 @@ function renderDiscovery() {
     <label class="discover-check"><input type="checkbox" name="remote"> Somente vagas remotas</label>
     <button type="submit">Buscar vagas</button>
   </form></div>
+  <div class="card"><form id="discoverImport" class="discover-form">
+    <label>Link de uma vaga<input name="url" type="url" maxlength="4096" placeholder="https://…" required></label>
+    <button type="submit" class="secondary">Importar link</button>
+  </form><p class="fine">Confira os dados encontrados ou complete a vaga manualmente antes de salvar.</p></div>
   <div id="discoverStatus" role="status"></div><div id="discoverResults"></div>`;
   const form = $('discoverForm');
   const owner = session.user.id;
-  form.onsubmit = event => {
+  let searching = false;
+  $('discoverImport').onsubmit = event => {
     event.preventDefault();
+    const importForm = event.currentTarget;
+    const query = new URLSearchParams({url: importForm.elements.url.value.trim()});
     busy(event.submitter, async () => {
-      const values = new FormData(form);
-      const query = new URLSearchParams({
-        q: values.get('q').trim(), location: values.get('location').trim(),
-        remote: String(values.has('remote')),
-      });
-      $('discoverStatus').textContent = 'Consultando fontes de vagas…';
-      $('discoverResults').replaceChildren();
-      try {
-        const result = await api('/api/discovery/jobs?' + query, {}, owner);
-        if (!form.isConnected || session?.user.id !== owner) return;
-        renderDiscoveryResults(result);
-      } finally {
-        if (form.isConnected) $('discoverStatus').textContent = '';
+      const job = await api('/api/discovery/import?' + query, {}, owner);
+      if (importForm.isConnected && session?.user.id === owner) {
+        openJob({...job, work_model: job.remote ? 'Remoto' : ''});
       }
     });
   };
+  const search = (query, page, button) => {
+    if (searching) return;
+    searching = true;
+    busy(button, async () => {
+      query.set('page', page);
+      $('discoverStatus').textContent = 'Consultando fontes de vagas…';
+      const submit = form.querySelector('[type="submit"]');
+      submit.disabled = true;
+      try {
+        const result = await api('/api/discovery/jobs?' + query, {}, owner);
+        if (!form.isConnected || session?.user.id !== owner) return;
+        renderDiscoveryResults(result, (next, control) => search(query, next, control));
+      } finally {
+        if (form.isConnected) $('discoverStatus').textContent = '';
+        submit.disabled = false;
+        searching = false;
+      }
+    });
+  };
+  form.onsubmit = event => {
+    event.preventDefault();
+    const values = new FormData(form);
+    search(new URLSearchParams({
+      q: values.get('q').trim(), location: values.get('location').trim(),
+      remote: String(values.has('remote')),
+    }), 1, event.submitter);
+  };
 }
 
-function renderDiscoveryResults(result) {
-  const {jobs: found, total, sources, portals} = result;
-  const sourceStatus = sources.map(source => `${esc(source.name)}: ${source.available ? 'consultada' : 'temporariamente indisponível'}`).join(' · ');
-  const portalCards = portals.map(portal => {
-    const url = safeURL(portal.url);
-    return url ? `<a class="button secondary small" href="${esc(url)}" target="_blank" rel="noopener noreferrer">${esc(portal.name)} ↗</a>` : '';
+function renderDiscoveryResults(result, goToPage) {
+  const {jobs: found, total, sources, page, page_size: pageSize} = result;
+  const sourceStatus = sources.map(source => {
+    const updated = source.updated_at && new Date(source.updated_at).toLocaleString('pt-BR');
+    const status = source.partial ? 'atualização parcial' :
+      source.available ? 'disponível' : updated ? 'exibindo última coleta' : 'temporariamente indisponível';
+    return `<li>${esc(source.name)} · ${status}${updated ? ' · Atualizada em ' + esc(updated) : ''}</li>`;
   }).join('');
   const cards = found.map((job, index) => {
     const url = safeURL(job.url);
@@ -68,16 +93,21 @@ function renderDiscoveryResults(result) {
       <div class="job-top"><div><h3>${esc(job.title)}</h3><p>${esc(job.company)} · ${esc(job.location || 'Local não informado')}</p></div>
       <span class="badge">${esc(job.source)}</span></div>
       ${job.remote ? '<span class="badge">Remoto</span>' : ''}
-      ${job.description ? `<details><summary>Descrição</summary><p>${esc(job.description)}</p></details>` : ''}
+      <details><summary>Ver detalhes</summary><p class="job-desc">${esc(job.description || 'A fonte não informou a descrição desta vaga.')}</p></details>
       <div class="job-actions">
-        <a class="button secondary small" href="${esc(url)}" target="_blank" rel="noopener noreferrer">Abrir vaga ↗</a>
+        <a class="button secondary small" href="${esc(url)}" target="_blank" rel="noopener noreferrer">Candidatar-se no site da vaga ↗</a>
         <button class="small" type="button" data-discover-save="${index}" data-url="${esc(job.url)}" ${saved ? 'disabled' : ''}>${saved ? 'Já salva' : 'Revisar e salvar'}</button>
       </div></article>`;
   }).join('');
   $('discoverResults').innerHTML = `
-    <section class="card"><h2>Buscar nos portais</h2><p>Estes links abrem os sites de origem. Alguns portais exigem aplicar os filtros lá.</p><div class="discover-portals">${portalCards}</div></section>
-    <section class="card"><h2>Resultados integrados</h2><p class="fine">${sourceStatus}</p>
-    <p>${found.length ? `Exibindo ${found.length} de ${total} resultados nas fontes consultadas.` : 'Nenhuma vaga encontrada nas fontes disponíveis. Tente outros termos ou abra um dos portais acima.'}</p>${cards}</section>`;
+    <section class="card"><h2>Resultados integrados</h2><details><summary>Atualização das fontes</summary><ul class="fine">${sourceStatus}</ul></details>
+    <p>${total ? `${total} vagas encontradas. Página ${page} de ${Math.ceil(total / pageSize)}.` : 'Nenhuma vaga encontrada nas fontes disponíveis. Tente outros termos ou filtros.'}</p>
+    ${cards}<div class="job-actions">
+      ${page > 1 ? '<button class="small secondary" id="discoverPrevious">Página anterior</button>' : ''}
+      ${page * pageSize < total ? '<button class="small secondary" id="discoverNext">Próxima página</button>' : ''}
+    </div></section>`;
+  if ($('discoverPrevious')) $('discoverPrevious').onclick = event => goToPage(page - 1, event.currentTarget);
+  if ($('discoverNext')) $('discoverNext').onclick = event => goToPage(page + 1, event.currentTarget);
   $('discoverResults').querySelectorAll('[data-discover-save]').forEach(button => {
     button.onclick = () => {
       const job = found[Number(button.dataset.discoverSave)];

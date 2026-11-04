@@ -1,33 +1,71 @@
-"""Search published feeds and build links to external job portals."""
+"""Search public job feeds for the CareerOS job browser."""
 import asyncio
+from contextlib import AsyncExitStack, asynccontextmanager, suppress
+from dataclasses import dataclass
+from datetime import datetime, timezone
+from html.parser import HTMLParser
+from pathlib import Path
+from tempfile import NamedTemporaryFile
 import html
 import json
+import logging
+import os
 import re
 import time
 import unicodedata
-from urllib.parse import quote, urlencode, urlsplit
+from urllib.parse import quote, urlsplit
+from xml.etree import ElementTree
 
 import httpx
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 
 from .auth import require_user
 
 router = APIRouter(prefix='/api/discovery', dependencies=[Depends(require_user)])
 FEEDS = {
-    'quintoandar': ('Grupo QuintoAndar', 'https://boards-api.greenhouse.io/v1/boards/quintoandar/jobs', 'jobs', 'Grupo QuintoAndar'),
-    'brex': ('Brex', 'https://boards-api.greenhouse.io/v1/boards/brex/jobs', 'jobs', 'Brex'),
-    'arbeitnow': ('Arbeitnow', 'https://www.arbeitnow.com/api/job-board-api', 'data', ''),
+    key: (company, f'https://boards-api.greenhouse.io/v1/boards/{key}/jobs?content=true', 'jobs', company)
+    for key, company in (
+        ('quintoandar', 'Grupo QuintoAndar'), ('brex', 'Brex'), ('stone', 'Stone'),
+        ('gympass', 'Wellhub'), ('vtex', 'VTEX'),
+    )
 }
+FEEDS['arbeitnow'] = ('Arbeitnow', 'https://www.arbeitnow.com/api/job-board-api', 'data', '')
+PAGE_SIZE = 20
 CACHE_TTL = 300
 MAX_FEED_BYTES = 5 * 1024 * 1024
 _cache = {}
 _locks = {key: asyncio.Lock() for key in FEEDS}
+_locks.update(gupy=asyncio.Lock(), careers=asyncio.Lock(), employer=asyncio.Lock(),
+              syndication=asyncio.Lock())
+CAREER_TTL = 3600
+CAREER_LIMIT = 30
+
+
+@dataclass
+class Snapshot:
+    expires: float
+    jobs: list
+    available: bool
+    updated_at: str | None
+    partial: bool = False
+_jooble_cache = {}
+_jooble_lock = asyncio.Lock()
 
 
 def clean(value, limit):
     if not isinstance(value, str):
         return ''
     return ' '.join(re.sub(r'<[^>]*>', ' ', html.unescape(value)).split())[:limit]
+
+
+def description_text(value):
+    if not isinstance(value, str):
+        return ''
+    markup = html.unescape(value)
+    markup = re.sub(r'<(?:br\b[^>]*|/(?:p|div|li|h[1-6]))\s*>', '\n', markup, flags=re.I)
+    plain = html.unescape(re.sub(r'<[^>]*>', ' ', markup))
+    lines = (' '.join(line.split()) for line in plain.splitlines())
+    return '\n'.join(line for line in lines if line)[:30000]
 
 
 def folded(value):
@@ -59,84 +97,451 @@ def normalize(row, source, company):
     tags = row.get('tags')
     keywords = ' '.join(clean(x, 100) for x in tags[:20]) if isinstance(tags, list) else ''
     remote = row.get('remote') is True or bool(re.search(r'\b(remote|remoto)\b', folded(location)))
+    description = description_text(row.get('content') if company else row.get('description'))
+    company = company or clean(row.get('company_name'), 500)
     return {
-        'title': title, 'company': company or clean(row.get('company_name'), 500),
+        'title': title, 'company': company,
         'location': location, 'url': url, 'source': source, 'remote': remote,
-        'description': clean(row.get('description'), 1500), 'keywords': keywords,
+        'description': description,
+        'search_text': folded(' '.join((title, company, keywords, description))),
     }
 
 
-async def get_feed(key):
+def gupy_jobs(companies):
+    for company in companies:
+        if not isinstance(company, dict) or not isinstance(company.get('jobs'), list):
+            continue
+        for row in company['jobs']:
+            if not isinstance(row, dict):
+                continue
+            address = row.get('address')
+            address = address if isinstance(address, dict) else {}
+            country = address.get('country')
+            location = ', '.join(dict.fromkeys(filter(None, (
+                clean(address.get('city'), 200), clean(address.get('state') or address.get('region'), 200),
+                'Brasil' if country == 'BR' else clean(country, 100),
+            ))))
+            url = row.get('url')
+            if isinstance(url, str) and url.startswith('http://'):
+                url = 'https://' + url[len('http://'):]
+            description = '\n'.join(
+                row[field] for field in ('description', 'responsibilities', 'prerequisites')
+                if isinstance(row.get(field), str)
+            )
+            job = normalize({
+                'title': row.get('title'), 'company_name': company.get('name'),
+                'location': location, 'url': url, 'description': description,
+                'remote': row.get('remoteWorking'), 'tags': [row.get('type')],
+            }, 'Gupy', '')
+            if job:
+                yield job
+
+
+async def fetch_content(method, url, *, accept, authorization='', client=None, **options):
+    headers = {'Accept': accept, 'User-Agent': 'CareerOS'}
+    if authorization:
+        headers['Authorization'] = authorization
+    async with asyncio.timeout(10), AsyncExitStack() as stack:
+        if client is None:
+            client = await stack.enter_async_context(httpx.AsyncClient(timeout=8, follow_redirects=False))
+        async with client.stream(method, url, headers=headers, **options) as response:
+            response.raise_for_status()
+            content = bytearray()
+            async for chunk in response.aiter_bytes():
+                if len(content) + len(chunk) > MAX_FEED_BYTES:
+                    raise ValueError('Feed too large')
+                content.extend(chunk)
+    return content
+
+
+async def fetch_rows(method, url, field, **options):
+    payload = json.loads(await fetch_content(method, url, accept='application/json', **options))
+    rows = payload.get(field) if isinstance(payload, dict) else None
+    if not isinstance(rows, list):
+        raise ValueError('Invalid feed')
+    return rows
+
+
+class JobMarkup(HTMLParser):
+    def __init__(self):
+        super().__init__()
+        self.reading = False
+        self.scripts = []
+
+    def handle_starttag(self, tag, attrs):
+        if tag == 'script':
+            self.reading = dict(attrs).get('type') == 'application/ld+json'
+
+    def handle_endtag(self, tag):
+        if tag == 'script':
+            self.reading = False
+
+    def handle_data(self, data):
+        if self.reading:
+            self.scripts.append(data)
+
+
+def posting_nodes(value):
+    if isinstance(value, list):
+        for item in value:
+            yield from posting_nodes(item)
+    elif isinstance(value, dict):
+        types = value.get('@type', [])
+        if types == 'JobPosting' or (isinstance(types, list) and 'JobPosting' in types):
+            yield value
+        if '@graph' in value:
+            yield from posting_nodes(value['@graph'])
+
+
+def structured_job(markup, url, source):
+    parser = JobMarkup()
+    parser.feed(markup)
+    for script in parser.scripts:
+        try:
+            nodes = json.loads(script)
+        except (ValueError, RecursionError):
+            continue
+        for posting in posting_nodes(nodes):
+            expires = posting.get('validThrough')
+            if isinstance(expires, str):
+                with suppress(ValueError):
+                    if datetime.fromisoformat(expires).date() < datetime.now(timezone.utc).date():
+                        return None
+            company = posting.get('hiringOrganization')
+            locations = posting.get('jobLocation')
+            locations = locations if isinstance(locations, list) else [locations]
+            places = []
+            for location in locations:
+                address = location.get('address') if isinstance(location, dict) else None
+                if isinstance(address, dict):
+                    places.extend(clean(address.get(key), 150)
+                                  for key in ('addressLocality', 'addressRegion', 'addressCountry'))
+            job = normalize({
+                'title': posting.get('title'), 'url': url,
+                'company_name': company.get('name') if isinstance(company, dict) else '',
+                'location': ', '.join(dict.fromkeys(filter(None, places))),
+                'description': posting.get('description'),
+                'remote': posting.get('jobLocationType') == 'TELECOMMUTE',
+            }, source, '')
+            if job:
+                return job
+    raise ValueError('JobPosting unavailable')
+
+
+ONJOB = ('OnJob.io', 'https://onjob.io/sitemap-jobs.xml', '/job/')
+
+
+def employer_settings():
+    url = safe_listing_url(os.getenv('CAREEROS_EMPLOYER_SITEMAP_URL', '').strip())
+    prefix = os.getenv('CAREEROS_EMPLOYER_JOB_PATH_PREFIX', '').strip()
+    if url and re.fullmatch(r'/[a-zA-Z0-9/_-]+/', prefix):
+        return urlsplit(url).hostname, url, prefix
+    return None
+
+
+def career_url(value, sitemap_url, prefix):
+    if not safe_listing_url(value):
+        return False
+    parts = urlsplit(value)
+    return (parts.hostname == urlsplit(sitemap_url).hostname and not parts.query and not parts.fragment
+            and parts.path.startswith(prefix) and len(parts.path) > len(prefix)
+            and all(segment not in ('.', '..') for segment in parts.path.split('/'))
+            and bool(re.fullmatch(r'/[a-zA-Z0-9/_-]+', parts.path)))
+
+
+async def fetch_career_job(url, source, client=None):
+    try:
+        markup = await fetch_content('GET', url, accept='text/html', client=client)
+    except httpx.HTTPStatusError as exc:
+        if exc.response.status_code in (404, 410):
+            return None
+        raise
+    return structured_job(markup.decode('utf-8', errors='replace'), url, source)
+
+
+async def career_jobs(source, sitemap_url, prefix, previous=()):
+    async with asyncio.timeout(25), httpx.AsyncClient(timeout=8, follow_redirects=False) as client:
+        content = await fetch_content('GET', sitemap_url, accept='application/xml', client=client)
+        if b'<!DOCTYPE' in content.upper():
+            raise ValueError('Unexpected sitemap declaration')
+        sitemap = ElementTree.fromstring(content)
+        if sitemap.tag.rsplit('}', 1)[-1] != 'urlset':
+            raise ValueError('Invalid sitemap')
+        links = [item.text for item in sitemap.findall('./{*}url/{*}loc')]
+        urls = list(dict.fromkeys(url for url in links if career_url(url, sitemap_url, prefix)))[:CAREER_LIMIT]
+        if links and not urls:
+            raise ValueError('No valid postings in sitemap')
+        jobs = []
+        failures = 0
+        previous_by_url = {job['url']: job for job in previous}
+        for offset in range(0, len(urls), 5):
+            batch_urls = urls[offset:offset + 5]
+            batch = await asyncio.gather(*(fetch_career_job(url, source, client) for url in batch_urls),
+                                         return_exceptions=True)
+            for url, job in zip(batch_urls, batch):
+                if isinstance(job, (httpx.HTTPError, TimeoutError, ValueError, RecursionError)):
+                    failures += 1
+                    job = previous_by_url.get(url)
+                elif isinstance(job, BaseException):
+                    raise job
+                if job:
+                    jobs.append(job)
+        if urls and failures == len(urls):
+            raise ValueError('No posting pages could be checked')
+        return jobs, bool(failures)
+
+
+def syndication_settings():
+    url = safe_listing_url(os.getenv('CAREEROS_JOB_FEED_URL', '').strip())
+    return (urlsplit(url).hostname, url) if url else None
+
+
+def syndicated_jobs(content, source):
+    if b'<!DOCTYPE' in content.upper():
+        raise ValueError('Unexpected feed declaration')
+    root = ElementTree.fromstring(content)
+    kind = root.tag.rsplit('}', 1)[-1]
+    if kind == 'rss' and root.find('./{*}channel') is not None:
+        entries = root.findall('./{*}channel/{*}item')
+    elif kind == 'feed':
+        entries = root.findall('./{*}entry')
+    else:
+        raise ValueError('Invalid job feed')
+    jobs = []
+    for entry in entries[:500]:
+        if kind == 'rss':
+            url = entry.findtext('./{*}link')
+            description = entry.findtext('./{*}encoded') or entry.findtext('./{*}description')
+        else:
+            url = next((link.get('href') for link in entry.findall('./{*}link')
+                        if link.get('rel', 'alternate') == 'alternate' and link.get('href')), None)
+            description = entry.findtext('./{*}content') or entry.findtext('./{*}summary')
+        job = normalize({'title': entry.findtext('./{*}title'), 'url': url,
+                         'description': description}, source, '')
+        if job:
+            jobs.append(job)
+    if entries and not jobs:
+        raise ValueError('No valid postings in nonempty feed')
+    return jobs
+
+
+@router.get('/import')
+async def preview_import(url: str = Query(max_length=4096)):
+    if not safe_listing_url(url):
+        raise HTTPException(422, 'Informe um link HTTPS válido.')
+    for snapshot in _cache.values():
+        for job in snapshot.jobs:
+            if job['url'] == url:
+                return {key: value for key, value in job.items() if key != 'search_text'}
+    for source, sitemap, prefix in filter(None, (ONJOB, employer_settings())):
+        if not career_url(url, sitemap, prefix):
+            continue
+        try:
+            job = await fetch_career_job(url, source)
+            if job:
+                return {key: value for key, value in job.items() if key != 'search_text'}
+        except (httpx.HTTPError, TimeoutError, ValueError):
+            pass
+    return {'url': url}
+
+
+def snapshot_path(key):
+    return Path(os.getenv('CAREEROS_DISCOVERY_CACHE_DIR') or 'data/discovery') / f'{key}.json'
+
+
+def read_snapshot(key):
+    try:
+        data = json.loads(snapshot_path(key).read_bytes())
+        jobs, updated = data['jobs'], data['updated_at']
+        fields = ('url', 'search_text', 'location', 'title', 'description', 'company', 'source')
+        if (not isinstance(jobs, list) or (updated is not None and not isinstance(updated, str))
+            or any(not isinstance(job, dict) or not all(isinstance(job.get(field), str) for field in fields)
+                   or not isinstance(job.get('remote'), bool) for job in jobs)):
+            raise ValueError('Invalid snapshot')
+        return Snapshot(0, jobs, False, updated)
+    except (OSError, ValueError, KeyError, TypeError, RecursionError):
+        return Snapshot(0, [], False, None)
+
+
+def save_snapshot(key, snapshot):
+    path = snapshot_path(key)
+    temporary = None
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with NamedTemporaryFile(dir=path.parent, delete=False) as handle:
+            temporary = Path(handle.name)
+            handle.write(json.dumps({'jobs': snapshot.jobs, 'updated_at': snapshot.updated_at},
+                                    ensure_ascii=False).encode('utf-8'))
+        temporary.replace(path)
+    except OSError:
+        pass
+    finally:
+        if temporary:
+            with suppress(OSError):
+                temporary.unlink(missing_ok=True)
+
+
+def gupy_settings():
+    url = safe_listing_url(os.getenv('CAREEROS_GUPY_FEED_URL', '').strip())
+    token = os.getenv('CAREEROS_GUPY_FEED_TOKEN', '').strip()
+    return (url, token) if url and token else None
+
+
+async def get_feed(key, gupy_url='', gupy_token='', *, force=False):
     async with _locks[key]:
         cached = _cache.get(key)
-        now = time.monotonic()
-        if cached and now < cached[0]:
-            return cached[1]
-        source, url, field, company = FEEDS[key]
+        if cached is None:
+            cached = await asyncio.to_thread(read_snapshot, key)
+        if not force and time.monotonic() < cached.expires:
+            return cached.jobs, cached.available
         try:
-            async with asyncio.timeout(10), httpx.AsyncClient(timeout=8, follow_redirects=False) as client:
-                async with client.stream('GET', url, headers={'Accept': 'application/json'}) as response:
-                    response.raise_for_status()
-                    content = bytearray()
-                    async for chunk in response.aiter_bytes():
-                        if len(content) + len(chunk) > MAX_FEED_BYTES:
-                            raise ValueError('Feed too large')
-                        content.extend(chunk)
-            payload = json.loads(content)
-            rows = payload.get(field) if isinstance(payload, dict) else None
-            if not isinstance(rows, list):
-                raise ValueError('Invalid feed')
-            jobs = [job for row in rows[:500] if (job := normalize(row, source, company))]
-            result = (jobs, True)
-            ttl = CACHE_TTL
+            partial = False
+            if key in ('careers', 'employer'):
+                jobs, partial = await career_jobs(*(ONJOB if key == 'careers' else employer_settings()),
+                                                  previous=cached.jobs)
+            elif key == 'syndication':
+                source, url = syndication_settings()
+                content = await fetch_content('GET', url, accept='application/rss+xml, application/atom+xml, application/xml')
+                jobs = syndicated_jobs(content, source)
+            elif key == 'gupy':
+                rows = await fetch_rows('GET', gupy_url, 'companies', authorization=gupy_token)
+                jobs = list(gupy_jobs(rows))
+            else:
+                source, url, field, company = FEEDS[key]
+                rows = await fetch_rows('GET', url, field)
+                jobs = [job for row in rows[:500] if (job := normalize(row, source, company))]
+                if rows and not jobs:
+                    raise ValueError('No valid postings in nonempty feed')
+            ttl = CAREER_TTL if key in ('careers', 'employer') and not partial else CACHE_TTL
+            snapshot = Snapshot(time.monotonic() + ttl, jobs, not partial,
+                                datetime.now(timezone.utc).isoformat(), partial)
+            await asyncio.to_thread(save_snapshot, key, snapshot)
+        except (httpx.HTTPError, TimeoutError, ValueError, ElementTree.ParseError, RecursionError):
+            snapshot = Snapshot(time.monotonic() + (300 if key in ('careers', 'employer') else 30),
+                                cached.jobs, False, cached.updated_at)
+        _cache[key] = snapshot
+        return snapshot.jobs, snapshot.available
+
+
+async def refresh_catalog():
+    while True:
+        await asyncio.sleep(CACHE_TTL)
+        settings = gupy_settings()
+        tasks = [get_feed(key) for key in (*FEEDS, 'careers')]
+        if employer_settings():
+            tasks.append(get_feed('employer'))
+        if syndication_settings():
+            tasks.append(get_feed('syndication'))
+        if settings:
+            tasks.append(get_feed('gupy', *settings))
+        outcomes = await asyncio.gather(*tasks, return_exceptions=True)
+        if any(isinstance(outcome, Exception) for outcome in outcomes):
+            logging.getLogger(__name__).warning('Unexpected job catalog refresh failure')
+
+
+@asynccontextmanager
+async def discovery_lifespan(app):
+    task = asyncio.create_task(refresh_catalog())
+    try:
+        yield
+    finally:
+        task.cancel()
+        with suppress(asyncio.CancelledError):
+            await task
+
+
+async def search_jooble(key, query, location, remote):
+    keywords = f'{query} remoto' if remote else query
+    location = location or 'Brasil'
+    cache_key = (keywords.casefold(), location.casefold(), remote)
+    async with asyncio.timeout(12), _jooble_lock:
+        cached = _jooble_cache.get(cache_key)
+        if cached and time.monotonic() < cached[0]:
+            return cached[1]
+        try:
+            rows = await fetch_rows('POST', f'https://br.jooble.org/api/{quote(key, safe="")}', 'jobs',
+                                    json={'keywords': keywords, 'location': location, 'ResultOnPage': 50})
+            jobs = []
+            for row in rows[:50]:
+                if not isinstance(row, dict):
+                    continue
+                job = normalize({
+                    'title': row.get('title'), 'company_name': row.get('company'),
+                    'location': row.get('location'), 'url': row.get('link'),
+                    'description': row.get('snippet'),
+                }, 'Jooble', '')
+                if job and (not remote or job['remote']):
+                    jobs.append(job)
+            result, ttl = (jobs, True), 900
         except (httpx.HTTPError, TimeoutError, ValueError):
-            result = ([], False)
-            ttl = 30
-        _cache[key] = (time.monotonic() + ttl, result)
+            result, ttl = ([], False), 60
+        _jooble_cache.pop(cache_key, None)
+        if len(_jooble_cache) >= 128:
+            del _jooble_cache[next(iter(_jooble_cache))]
+        _jooble_cache[cache_key] = (time.monotonic() + ttl, result)
         return result
 
 
-def portal_links(term, location, remote):
-    def link(base, **params):
-        return base + '?' + urlencode({k: v for k, v in params.items() if v})
-
-    query = ' '.join(filter(None, (term, 'remoto' if remote else '')))
-    slug = '-'.join(re.findall(r'\w+', folded(query)))
-    return [
-        {'name': 'LinkedIn', 'url': link('https://www.linkedin.com/jobs/search/', keywords=term, location=location or 'Brasil', f_WT='2' if remote else '')},
-        {'name': 'Gupy', 'url': 'https://portal.gupy.io/job-search/term%3D' + quote(query, safe='') if query else 'https://portal.gupy.io/vagas'},
-        {'name': 'InfoJobs', 'url': ('https://www.infojobs.com.br/vagas-de-emprego-' + quote(slug, safe='-') + '.aspx') if slug else 'https://www.infojobs.com.br/vagas-de-emprego.aspx'},
-        {'name': 'Indeed', 'url': link('https://br.indeed.com/jobs', q=query, l=location)},
-        {'name': 'Catho', 'url': 'https://www.catho.com.br/vagas/'},
-        {'name': 'Vagas.com.br', 'url': 'https://www.vagas.com.br/'},
-        {'name': 'Glassdoor', 'url': 'https://www.glassdoor.com.br/Vaga/index.htm'},
-        {'name': 'Empregos.com.br', 'url': 'https://www.empregos.com.br/'},
-        {'name': 'Trabalha Brasil', 'url': 'https://www.trabalhabrasil.com.br/vagas-de-emprego'},
-        {'name': 'Jooble', 'url': 'https://br.jooble.org/'},
-        {'name': 'Trampos', 'url': 'https://trampos.co/oportunidades'},
-        {'name': 'CIEE', 'url': 'https://portal.ciee.org.br/quero-uma-vaga/'},
-        {'name': 'Nube', 'url': 'https://www.nube.com.br/vagas'},
-        {'name': 'SINE', 'url': 'https://www.gov.br/trabalho-e-emprego/pt-br/servicos/trabalhador/intermediacao-de-mao-de-obra'},
-    ]
+async def jooble_feed(key, query, location, remote):
+    try:
+        return await search_jooble(key, query, location, remote)
+    except TimeoutError:
+        return [], False
 
 
 @router.get('/jobs')
 async def discover_jobs(q: str = Query('', max_length=120),
                         location: str = Query('', max_length=100),
-                        remote: bool = False):
-    feeds = await asyncio.gather(*(get_feed(key) for key in FEEDS))
+                        remote: bool = False,
+                        page: int = Query(1, ge=1)):
+    names = [feed[0] for feed in FEEDS.values()]
+    requests = [get_feed(key) for key in FEEDS]
+    keys = [*FEEDS, 'careers']
+    names.append(ONJOB[0])
+    requests.append(get_feed('careers'))
+    employer = employer_settings()
+    if employer:
+        keys.append('employer')
+        names.append(employer[0])
+        requests.append(get_feed('employer'))
+    syndication = syndication_settings()
+    if syndication:
+        keys.append('syndication')
+        names.append(syndication[0])
+        requests.append(get_feed('syndication'))
+    settings = gupy_settings()
+    if settings:
+        keys.append('gupy')
+        names.append('Gupy')
+        requests.append(get_feed('gupy', *settings))
+    jooble_key = os.getenv('CAREEROS_JOOBLE_BR_API_KEY', '').strip()
+    if jooble_key and q.strip():
+        names.append('Jooble')
+        requests.append(jooble_feed(jooble_key, q.strip(), location.strip(), remote))
+    feeds = await asyncio.gather(*requests)
     words = folded(q).split()
     where = re.sub(r'\bbrazil\b', 'brasil', folded(location.strip()))
     results, seen, sources = [], set(), []
-    for key, (jobs, ok) in zip(FEEDS, feeds):
-        sources.append({'name': FEEDS[key][0], 'available': ok})
+    for index, (name, (jobs, ok)) in enumerate(zip(names, feeds)):
+        status = {'name': name, 'available': ok}
+        snapshot = _cache.get(keys[index]) if index < len(keys) else None
+        if snapshot and snapshot.updated_at:
+            status['updated_at'] = snapshot.updated_at
+        if snapshot and snapshot.partial:
+            status['partial'] = True
+        sources.append(status)
         for job in jobs:
-            haystack = folded(' '.join(job[field] for field in ('title', 'company', 'keywords')))
-            if (not all(word in haystack for word in words) or
+            if job['url'] in seen:
+                continue
+            if name != 'Jooble' and (
+                not all(word in job['search_text'] for word in words) or
                 (where and where not in re.sub(r'\bbrazil\b', 'brasil', folded(job['location']))) or
-                (remote and not job['remote']) or job['url'] in seen):
+                (remote and not job['remote'])
+            ):
                 continue
             seen.add(job['url'])
-            results.append({k: v for k, v in job.items() if k != 'keywords'})
-    return {'jobs': results[:50], 'total': len(results), 'sources': sources,
-            'portals': portal_links(q.strip(), location.strip(), remote)}
+            results.append({k: v for k, v in job.items() if k != 'search_text'})
+    page = min(page, max(1, (len(results) + PAGE_SIZE - 1) // PAGE_SIZE))
+    offset = (page - 1) * PAGE_SIZE
+    return {'jobs': results[offset:offset + PAGE_SIZE], 'total': len(results),
+            'page': page, 'page_size': PAGE_SIZE, 'sources': sources}
