@@ -543,5 +543,6 @@ async def discover_jobs(q: str = Query('', max_length=120),
             results.append({k: v for k, v in job.items() if k != 'search_text'})
     page = min(page, max(1, (len(results) + PAGE_SIZE - 1) // PAGE_SIZE))
     offset = (page - 1) * PAGE_SIZE
-    return {'jobs': results[offset:offset + PAGE_SIZE], 'total': len(results),
+    # Older tabs still call portals.map() on this response.
+    return {'jobs': results[offset:offset + PAGE_SIZE], 'total': len(results), 'portals': [],
             'page': page, 'page_size': PAGE_SIZE, 'sources': sources}

@@ -78,7 +78,10 @@ function renderDiscovery() {
 }
 
 function renderDiscoveryResults(result, goToPage) {
-  const {jobs: found, total, sources, page, page_size: pageSize} = result;
+  const {jobs: found, total = 0, sources = [], page = 1, page_size: pageSize = 20} = result ?? {};
+  if (!Array.isArray(found) || !Array.isArray(sources)) {
+    throw Error('A busca retornou uma resposta inesperada. Tente novamente.');
+  }
   const sourceStatus = sources.map(source => {
     const updated = source.updated_at && new Date(source.updated_at).toLocaleString('pt-BR');
     const status = source.partial ? 'atualização parcial' :
