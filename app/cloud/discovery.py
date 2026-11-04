@@ -25,6 +25,17 @@ from .auth import require_user
 from .proximity import city_center, nearest_distance
 
 router = APIRouter(prefix='/api/discovery', dependencies=[Depends(require_user)])
+
+
+def redact_credential_urls(record):
+    message = record.getMessage()
+    if 'serpapi.com/' in message and 'api_key=' in message:
+        record.msg = re.sub(r'([?&]api_key=)[^&\s"]+', r'\1[redacted]', message)
+        record.args = ()
+    return True
+
+
+logging.getLogger('httpx').addFilter(redact_credential_urls)
 FEEDS = {
     key: (company, f'https://boards-api.greenhouse.io/v1/boards/{key}/jobs?content=true', 'jobs', company)
     for key, company in (
@@ -36,12 +47,26 @@ FEEDS = {
     )
 }
 FEEDS['arbeitnow'] = ('Arbeitnow', 'https://www.arbeitnow.com/api/job-board-api', 'data', '')
+JSEARCH_PORTALS = {
+    'jsearch_linkedin': ('LinkedIn', ('linkedin.com',)),
+    'jsearch_indeed': ('Indeed', ('indeed.com', 'indeed.com.br')),
+    'jsearch_glassdoor': ('Glassdoor', ('glassdoor.com', 'glassdoor.com.br')),
+}
+AGGREGATOR_FEEDS = {
+    **{key: (f'{name} via JSearch', 'CAREEROS_JSEARCH_API_KEY')
+       for key, (name, _) in JSEARCH_PORTALS.items()},
+    'serpapi_google': ('Google Jobs via SerpApi', 'CAREEROS_SERPAPI_API_KEY'),
+    'searchapi_google': ('Google Jobs via SearchApi', 'CAREEROS_SEARCHAPI_API_KEY'),
+    'searchapi_linkedin': ('LinkedIn via SearchApi', 'CAREEROS_SEARCHAPI_API_KEY'),
+}
+AGGREGATOR_TTL = 24 * 3600
 PAGE_SIZE = 20
 CACHE_TTL = 300
 MAX_FEED_BYTES = 5 * 1024 * 1024
 _cache = {}
 _refresh_tasks = {}
 _locks = {key: asyncio.Lock() for key in FEEDS}
+_locks.update({key: asyncio.Lock() for key in AGGREGATOR_FEEDS})
 _locks.update(gupy=asyncio.Lock(), careers=asyncio.Lock(), employer=asyncio.Lock(),
               syndication=asyncio.Lock())
 CAREER_TTL = 3600
@@ -176,7 +201,17 @@ def best_match(job, alternatives, *, title_only, provider_matched):
 
 def duplicate_keys(job):
     parts = urlsplit(job['url'])
-    parameters = tuple(sorted((key, value) for key, value in parse_qsl(parts.query)
+    query = parse_qsl(parts.query)
+    host = parts.hostname or ''
+    if domain_matches(host, ('linkedin.com',)):
+        match = re.fullmatch(r'/jobs/view/(?:[^/]+-)?(\d+)/?', parts.path)
+        if match:
+            yield 'linkedin', match[1]
+    if domain_matches(host, ('indeed.com', 'indeed.com.br')) and parts.path.rstrip('/') == '/viewjob':
+        identifier = dict(query).get('jk')
+        if identifier:
+            yield 'indeed', identifier
+    parameters = tuple(sorted((key, value) for key, value in query
                               if not key.startswith('utm_') and key not in ('fbclid', 'gclid')))
     yield parts.hostname, parts.path.rstrip('/'), parameters
     if len(job['description']) >= 100 and job['company'] and job['location']:
@@ -263,8 +298,8 @@ def gupy_jobs(companies):
                 yield job
 
 
-async def fetch_content(method, url, *, accept, authorization='', client=None, **options):
-    headers = {'Accept': accept, 'User-Agent': 'CareerOS'}
+async def fetch_content(method, url, *, accept, authorization='', client=None, headers=None, **options):
+    headers = {'Accept': accept, 'User-Agent': 'CareerOS', **(headers or {})}
     if authorization:
         headers['Authorization'] = authorization
     async with asyncio.timeout(10), AsyncExitStack() as stack:
@@ -287,6 +322,107 @@ async def fetch_rows(method, url, field, **options):
     if not isinstance(rows, list):
         raise ValueError('Invalid feed')
     return rows
+
+
+def domain_matches(host, domains):
+    return any(host == domain or host.endswith('.' + domain) for domain in domains)
+
+
+def portal_for_url(url):
+    host = urlsplit(url).hostname or ''
+    portals = (*JSEARCH_PORTALS.values(), ('Gupy', ('gupy.io',)),
+               ('InfoJobs', ('infojobs.com.br',)), ('Catho', ('catho.com.br',)))
+    return next((name for name, domains in portals if domain_matches(host, domains)), None)
+
+
+async def jsearch_jobs(key, token):
+    publisher, domains = JSEARCH_PORTALS[key]
+    rows = await fetch_rows(
+        'GET', 'https://api.openwebninja.com/jsearch/search', 'data',
+        headers={'x-api-key': token},
+        params={'query': f'estágio tecnologia da informação Brasil via {publisher}',
+                'country': 'br', 'language': 'pt', 'date_posted': 'month'},
+    )
+    jobs = []
+    for row in rows[:50]:
+        if not isinstance(row, dict):
+            continue
+        options = row.get('apply_options')
+        links = [row.get('job_apply_link')]
+        if isinstance(options, list):
+            links.extend(option.get('apply_link') for option in options[:20] if isinstance(option, dict))
+        for link in links:
+            if not safe_listing_url(link):
+                continue
+            host = urlsplit(link).hostname
+            if domain_matches(host, domains):
+                break
+        else:
+            continue
+        country = clean(row.get('job_country'), 20).upper()
+        if country and country != 'BR':
+            continue
+        location = ', '.join(filter(None, (clean(row.get('job_city'), 150),
+                                            clean(row.get('job_state'), 100))))
+        location = location or clean(row.get('job_location'), 300)
+        if country == 'BR' and not re.search(r'\b(?:brasil|brazil|br)\b', folded(location)):
+            location = ', '.join(filter(None, (location, 'Brasil')))
+        job = normalize({
+            'title': row.get('job_title'), 'company_name': row.get('employer_name'),
+            'url': link, 'location': location, 'description': row.get('job_description'),
+            'remote': row.get('job_is_remote'),
+        }, f'{publisher} via JSearch', '')
+        if job:
+            jobs.append(job)
+    return jobs
+
+
+async def aggregator_jobs(key, token):
+    if key in JSEARCH_PORTALS:
+        return await jsearch_jobs(key, token)
+    query = 'estágio tecnologia da informação Brasil'
+    if key == 'serpapi_google':
+        rows = await fetch_rows('GET', 'https://serpapi.com/search.json', 'jobs_results',
+                                params={'engine': 'google_jobs', 'q': query, 'gl': 'br',
+                                        'hl': 'pt', 'api_key': token})
+        provider, options_key = 'SerpApi', 'apply_options'
+    else:
+        engine = 'linkedin_jobs' if key == 'searchapi_linkedin' else 'google_jobs'
+        params = {'engine': engine, 'q': query, 'location': 'Brazil'}
+        if engine == 'google_jobs':
+            params.update(gl='br', hl='pt')
+        rows = await fetch_rows('GET', 'https://www.searchapi.io/api/v1/search', 'jobs',
+                                authorization='Bearer ' + token, params=params)
+        provider, options_key = 'SearchApi', 'apply_links'
+    jobs = []
+    for row in rows[:50]:
+        if not isinstance(row, dict):
+            continue
+        options = row.get(options_key)
+        links = [row.get('link'), row.get('apply_link')]
+        if isinstance(options, list):
+            links.extend(item.get('link') for item in options[:20] if isinstance(item, dict))
+        links = [url for link in links if (url := safe_listing_url(link))]
+        if not links:
+            continue
+        url = next((link for link in links if portal_for_url(link)), links[0])
+        portal = portal_for_url(url)
+        if key == 'searchapi_linkedin' and portal != 'LinkedIn':
+            continue
+        extensions = row.get('detected_extensions')
+        job = normalize({
+            'title': row.get('title'), 'company_name': row.get('company_name'),
+            'location': row.get('location'), 'url': url, 'description': row.get('description'),
+            'remote': isinstance(extensions, dict) and extensions.get('work_from_home') is True,
+        }, f'{portal or "Google Jobs"} via {provider}', '')
+        if job:
+            jobs.append(job)
+    return jobs
+
+
+def enabled_aggregators():
+    return [(key, name) for key, (name, variable) in AGGREGATOR_FEEDS.items()
+            if os.getenv(variable, '').strip()]
 
 
 class JobMarkup(HTMLParser):
@@ -489,7 +625,11 @@ def read_snapshot(key):
             or any(not isinstance(job, dict) or not all(isinstance(job.get(field), str) for field in fields)
                    or not isinstance(job.get('remote'), bool) for job in jobs)):
             raise ValueError('Invalid snapshot')
-        return Snapshot(0, jobs, False, updated)
+        remaining = 0
+        if key in AGGREGATOR_FEEDS and updated:
+            age = (datetime.now(timezone.utc) - datetime.fromisoformat(updated)).total_seconds()
+            remaining = max(0, AGGREGATOR_TTL - max(0, age))
+        return Snapshot(time.monotonic() + remaining, jobs, bool(remaining), updated)
     except (OSError, ValueError, KeyError, TypeError, RecursionError):
         return Snapshot(0, [], False, None)
 
@@ -535,6 +675,11 @@ async def get_feed(key, gupy_url='', gupy_token='', *, force=False):
                 source, url = syndication_settings()
                 content = await fetch_content('GET', url, accept='application/rss+xml, application/atom+xml, application/xml')
                 jobs = syndicated_jobs(content, source)
+            elif key in AGGREGATOR_FEEDS:
+                token = os.getenv(AGGREGATOR_FEEDS[key][1], '').strip()
+                if not token:
+                    return [], False
+                jobs = await aggregator_jobs(key, token)
             elif key == 'gupy':
                 rows = await fetch_rows('GET', gupy_url, 'companies', authorization=gupy_token)
                 jobs = list(gupy_jobs(rows))
@@ -545,11 +690,16 @@ async def get_feed(key, gupy_url='', gupy_token='', *, force=False):
                 if rows and not jobs:
                     raise ValueError('No valid postings in nonempty feed')
             ttl = CAREER_TTL if key in ('careers', 'employer') and not partial else CACHE_TTL
+            if key in AGGREGATOR_FEEDS:
+                ttl = AGGREGATOR_TTL
             snapshot = Snapshot(time.monotonic() + ttl, jobs, not partial,
                                 datetime.now(timezone.utc).isoformat(), partial)
             await asyncio.to_thread(save_snapshot, key, snapshot)
         except (httpx.HTTPError, TimeoutError, ValueError, ElementTree.ParseError, RecursionError):
-            snapshot = Snapshot(time.monotonic() + (300 if key in ('careers', 'employer') else 30),
+            retry = 300 if key in ('careers', 'employer') else 30
+            if key in AGGREGATOR_FEEDS:
+                retry = AGGREGATOR_TTL
+            snapshot = Snapshot(time.monotonic() + retry,
                                 cached.jobs, False, cached.updated_at)
         _cache[key] = snapshot
         return snapshot.jobs, snapshot.available
@@ -585,6 +735,7 @@ async def refresh_catalog():
         await asyncio.sleep(CACHE_TTL)
         settings = gupy_settings()
         tasks = [search_feed(key) for key in (*FEEDS, 'careers')]
+        tasks.extend(search_feed(key) for key, _ in enabled_aggregators())
         if employer_settings():
             tasks.append(search_feed('employer'))
         if syndication_settings():
@@ -669,6 +820,10 @@ async def discover_jobs(q: str = Query('', max_length=120),
     keys = [*FEEDS, 'careers']
     names.append(ONJOB[0])
     requests.append(search_feed('careers'))
+    for key, source in enabled_aggregators():
+        keys.append(key)
+        names.append(source)
+        requests.append(search_feed(key))
     employer = employer_settings()
     if employer:
         keys.append('employer')
@@ -724,7 +879,9 @@ async def discover_jobs(q: str = Query('', max_length=120),
                 score, scope = match
                 candidates.append((score, distance, status, job, model, scope))
     results, seen = [], set()
-    for _, distance, status, job, model, scope in sorted(candidates, key=lambda item: (-item[0], item[1] or 0)):
+    for _, distance, status, job, model, scope in sorted(
+        candidates, key=lambda item: (-item[0], item[1] or 0, -len(item[3]['description']))
+    ):
         identities = tuple(duplicate_keys(job))
         if seen.intersection(identities):
             continue

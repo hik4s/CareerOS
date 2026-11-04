@@ -69,9 +69,26 @@ Cadastre os valores diretamente no ambiente do serviço. A API do Jooble usa
 a chave no caminho da requisição. Mantenha logs HTTP de saída em nível
 `WARNING` ou superior quando a chave estiver configurada.
 
-Indeed oferece um plugin para parceiros que exibe cards próprios. A API
+**LinkedIn, Indeed e Glassdoor via JSearch.** Para ativar a integração opcional,
+configure `CAREEROS_JSEARCH_API_KEY` com uma chave autorizada para o uso previsto.
+O agregador fornece um recorte de estágios de tecnologia no Brasil. A coleta faz
+uma consulta por portal a cada 24 horas por instância e inclui apenas anúncios
+com link do portal correspondente. Os filtros do CareerOS são aplicados ao
+catálogo recebido. A cobertura depende da indexação do agregador.
+[Documentação e plano gratuito do JSearch](https://www.openwebninja.com/api/jsearch)
+
+**SerpApi e SearchApi.** Configure `CAREEROS_SERPAPI_API_KEY` para o catálogo
+Google Jobs da SerpApi e `CAREEROS_SEARCHAPI_API_KEY` para os catálogos Google
+Jobs e LinkedIn da SearchApi. Cada catálogo consulta estágios de tecnologia
+no Brasil uma vez por dia por instância, em segundo plano. Os resultados
+entram na lista do CareerOS com o portal de origem e o nome do agregador.
+Links equivalentes de LinkedIn e Indeed são agrupados pelo identificador da
+vaga. Cadastre as chaves apenas no ambiente do servidor.
+[SerpApi](https://serpapi.com/google-jobs-api) · [SearchApi](https://www.searchapi.io/google-jobs)
+
+Indeed também oferece um plugin para parceiros que exibe cards próprios. A API
 documentada do LinkedIn permite publicação por parceiros. Para InfoJobs,
-Catho, Vagas.com.br, Glassdoor, Empregos.com.br, Trabalha Brasil, Trampos,
+Catho, Vagas.com.br, Empregos.com.br, Trabalha Brasil, Trampos,
 CIEE, Nube e SINE, ainda não há um feed de busca confirmado para o CareerOS.
 
 ## Implementação
