@@ -19,10 +19,11 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from app.services.scoring import analyze
 from .config import settings
+from .discovery import discovery_lifespan, router as discovery_router
 from .store import SupabaseStore, get_store
 from .version import VERSION
 
-app = FastAPI(title='CareerOS Cloud', version=VERSION)
+app = FastAPI(title='CareerOS Cloud', version=VERSION, lifespan=discovery_lifespan)
 _parse_gate = asyncio.Semaphore(1)
 app.add_middleware(CORSMiddleware, allow_origins=list(settings().cors_origins), allow_origin_regex=r'chrome-extension://[a-p]{32}', allow_credentials=False, allow_methods=['GET', 'POST', 'PUT', 'PATCH', 'DELETE'], allow_headers=['Authorization', 'Content-Type'])
 
@@ -289,7 +290,6 @@ from .ai import router as ai_router
 app.include_router(ai_router)
 from .export import router as export_router
 app.include_router(export_router)
-from .discovery import router as discovery_router
 app.include_router(discovery_router)
 
 @app.get('/api/extension.zip')
