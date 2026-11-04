@@ -27,6 +27,7 @@ function Auth({ client, redirectTo, bridge, startupError }) {
   const [visible, setVisible] = useState(false);
   const [pending, setPending] = useState(false);
   const [feedback, setFeedback] = useState(null);
+  const [remember, setRemember] = useState(false);
 
   const newPassword = mode === 'signup' || mode === 'recover';
   const passwordRules = [
@@ -64,6 +65,9 @@ function Auth({ client, redirectTo, bridge, startupError }) {
       if (mode === 'reset') result = await client.auth.resetPasswordForEmail(email.trim(), {redirectTo});
       if (mode === 'recover') result = await client.auth.updateUser({password});
       if (result.error) throw result.error;
+      if (['login', 'signup'].includes(mode) && result.data.session) {
+        await bridge.signedIn(result.data.session, mode === 'login' && remember);
+      }
       setPassword('');
       setConfirmPassword('');
       if (mode === 'recover') {
@@ -83,6 +87,7 @@ function Auth({ client, redirectTo, bridge, startupError }) {
     setPending(true);
     setFeedback(null);
     try {
+      try { sessionStorage.setItem('careeros.oauth.remember', String(mode === 'login' && remember)); } catch {}
       const {error} = await client.auth.signInWithOAuth({provider, options: {redirectTo}});
       if (error) throw error;
     } catch {
@@ -130,7 +135,10 @@ function Auth({ client, redirectTo, bridge, startupError }) {
                   </span>
                 </label>
               )}
-              {mode === 'login' && <button type="button" className="auth-link auth-forgot" disabled={pending} onClick={() => changeMode('reset')}>Esqueci a senha</button>}
+              {mode === 'login' && <>
+                <label className="auth-remember"><input type="checkbox" checked={remember} onChange={e => setRemember(e.target.checked)} /> Manter conectado neste navegador</label>
+                <button type="button" className="auth-link auth-forgot" disabled={pending} onClick={() => changeMode('reset')}>Esqueci a senha</button>
+              </>}
               {newPassword && <>
                 <label htmlFor="auth-password-confirm">Confirmar senha
                   <input id="auth-password-confirm" type={visible ? 'text' : 'password'} autoComplete="new-password" value={confirmPassword} onChange={e => setConfirmPassword(e.target.value)} required maxLength={72} aria-describedby="auth-password-rules" />
@@ -163,7 +171,8 @@ function Auth({ client, redirectTo, bridge, startupError }) {
 
 const root = createRoot(document.getElementById('auth-root'));
 window.mountCareerAuth = (client, redirectTo) => {
-  const bridge = {onRecovered: handler => { bridge.recovered = handler; }};
+  const bridge = {onRecovered: handler => { bridge.recovered = handler; },
+                  onSignedIn: handler => { bridge.signedIn = handler; }};
   flushSync(() => root.render(<Auth client={client} redirectTo={redirectTo} bridge={bridge} />));
   return bridge;
 };

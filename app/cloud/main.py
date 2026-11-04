@@ -18,6 +18,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from app.services.scoring import analyze
+from .browser_session import router as browser_session_router
 from .config import settings
 from .discovery import discovery_lifespan, router as discovery_router
 from .store import SupabaseStore, get_store
@@ -291,6 +292,7 @@ app.include_router(ai_router)
 from .export import router as export_router
 app.include_router(export_router)
 app.include_router(discovery_router)
+app.include_router(browser_session_router)
 
 @app.get('/api/extension.zip')
 async def extension_download():

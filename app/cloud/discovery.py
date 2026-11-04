@@ -18,10 +18,42 @@ from xml.etree import ElementTree
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import BaseModel, Field
+from uuid import UUID
 
 from .auth import require_user
+from .store import SupabaseStore, get_store
 
 router = APIRouter(prefix='/api/discovery', dependencies=[Depends(require_user)])
+
+
+class SavedSearch(BaseModel):
+    q: str = Field('', max_length=120)
+    location: str = Field('', max_length=100)
+    remote: bool = False
+
+
+@router.get('/saved-searches')
+async def saved_searches(store: SupabaseStore = Depends(get_store)):
+    return await store.rows('cloud_saved_searches', order='created_at.desc', limit='100')
+
+
+@router.post('/saved-searches', status_code=204)
+async def save_search(search: SavedSearch, store: SupabaseStore = Depends(get_store)):
+    await store.request(
+        'POST', '/rest/v1/cloud_saved_searches', params={'on_conflict': 'user_id,q,location,remote'},
+        json={'user_id': store.user.id, 'q': search.q.strip(), 'location': search.location.strip(),
+              'remote': search.remote},
+        headers={'Prefer': 'resolution=ignore-duplicates'},
+    )
+
+
+@router.delete('/saved-searches/{search_id}', status_code=204)
+async def delete_search(search_id: UUID, store: SupabaseStore = Depends(get_store)):
+    await store.request('DELETE', '/rest/v1/cloud_saved_searches',
+                        params={'id': f'eq.{search_id}', 'user_id': 'eq.' + store.user.id})
+
+
 FEEDS = {
     key: (company, f'https://boards-api.greenhouse.io/v1/boards/{key}/jobs?content=true', 'jobs', company)
     for key, company in (
