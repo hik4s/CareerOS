@@ -4,6 +4,7 @@ from contextlib import AsyncExitStack, asynccontextmanager, suppress
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from html.parser import HTMLParser
+from hashlib import sha256
 from pathlib import Path
 from tempfile import NamedTemporaryFile
 import html
@@ -13,13 +14,15 @@ import os
 import re
 import time
 import unicodedata
-from urllib.parse import quote, urlsplit
+from typing import Annotated, Literal
+from urllib.parse import parse_qsl, quote, urlsplit
 from xml.etree import ElementTree
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from .auth import require_user
+from .proximity import city_center, nearest_distance
 
 router = APIRouter(prefix='/api/discovery', dependencies=[Depends(require_user)])
 FEEDS = {
@@ -27,6 +30,7 @@ FEEDS = {
     for key, company in (
         ('quintoandar', 'Grupo QuintoAndar'), ('brex', 'Brex'), ('stone', 'Stone'),
         ('gympass', 'Wellhub'), ('vtex', 'VTEX'),
+        ('sumup', 'SumUp'), ('wildlifestudios', 'Wildlife Studios'), ('ebury', 'Ebury'),
     )
 }
 FEEDS['arbeitnow'] = ('Arbeitnow', 'https://www.arbeitnow.com/api/job-board-api', 'data', '')
@@ -74,6 +78,106 @@ def folded(value):
                    if not unicodedata.combining(c))
 
 
+LEVELS = {
+    'intern': re.compile(r'\b(?:estagio|estagiari[oa]|intern|internship|aprendiz)\b'),
+    'junior': re.compile(r'\b(?:junior|jr|entry.level)\b'),
+    'mid': re.compile(r'\b(?:pleno|plena|mid.level|intermediate)\b'),
+    'senior': re.compile(r'\b(?:senior|sr|staff|principal|lead)\b'),
+    'trainee': re.compile(r'\btrainee\b'),
+}
+BRAZIL = re.compile(r'\b(?:brasil|brazil|br|sao paulo|rio de janeiro|belo horizonte|curitiba|'
+                    r'porto alegre|brasilia|recife|fortaleza|salvador|florianopolis|manaus|'
+                    r'campinas|goiania|espirito santo|minas gerais|pernambuco|parana|bahia)\b')
+GLOBAL_REMOTE = re.compile(r'\b(?:worldwide|anywhere|global|mundial|latin america|latam|america latina)\b')
+EXCLUDES_BRAZIL = re.compile(r'\b(?:(?:excluding|except|exceto)\s+(?:brasil|brazil)|(?:brasil|brazil)\s+excluded)\b')
+ALIASES = (
+    ('estagio', 'estagiario', 'estagiaria', 'intern', 'internship'),
+    ('junior', 'jr'), ('dados', 'data'), ('desenvolvedor', 'desenvolvedora', 'developer'),
+    ('engenheiro', 'engenheira', 'engineer'), ('analista', 'analyst'),
+    ('remoto', 'remota', 'remote'),
+)
+STOP_WORDS = {'a', 'as', 'o', 'os', 'de', 'da', 'do', 'das', 'dos', 'em', 'no', 'na', 'para', 'e'}
+
+
+def search_terms(value):
+    words = re.findall(r'[\w+#.]+', folded(value))
+    terms = dict.fromkeys(word.strip('.') for word in words if word.strip('.') not in STOP_WORDS | {''})
+    return [re.compile(r'(?<!\w)(?:' + '|'.join(re.escape(alias) for alias in
+            next((group for group in ALIASES if term in group), (term,))) + r')(?!\w)') for term in terms]
+
+
+def infer_work_model(job):
+    place = folded(job['location'])
+    title = folded(job['title'])
+    if job.get('work_model'):
+        return job['work_model']
+    if re.search(r'\b(?:hybrid|hibrid[oa])\b', place + ' ' + title):
+        return 'hybrid'
+    if job['remote'] or re.search(r'\b(?:remote|remot[oa])\b', place + ' ' + title):
+        return 'remote'
+    if re.search(r'\b(?:on.site|onsite|presencial)\b', place + ' ' + title):
+        return 'onsite'
+    return ''
+
+
+def matches_location(job, where, model):
+    place = folded(job['location'])
+    if where == 'brasil':
+        regions = folded(job.get('applicant_regions', ''))
+        if model == 'remote' and EXCLUDES_BRAZIL.search(regions + ' ' + place):
+            return False
+        if model == 'remote' and regions:
+            return bool(BRAZIL.search(regions) or GLOBAL_REMOTE.search(regions))
+        if BRAZIL.search(place):
+            return True
+        return model == 'remote' and bool(GLOBAL_REMOTE.search(place)) and not re.search(r'\b(?:only|somente)\b', place)
+    return not where or where in re.sub(r'\bbrazil\b', 'brasil', place)
+
+
+def relevance(job, terms, *, title_only=False, provider_matched=False):
+    title, company = folded(job['title']), folded(job['company'])
+    score = 0
+    scope = 'title' if terms else ''
+    for term in terms:
+        if term.search(title):
+            score += 12
+            continue
+        if title_only:
+            return None
+        if scope == 'title':
+            scope = 'details'
+        if term.search(company):
+            score += 5
+        elif term.search(job['search_text']):
+            score += 1
+        elif provider_matched:
+            scope = 'provider'
+        else:
+            return None
+    return score, scope
+
+
+def duplicate_keys(job):
+    parts = urlsplit(job['url'])
+    parameters = tuple(sorted((key, value) for key, value in parse_qsl(parts.query)
+                              if not key.startswith('utm_') and key not in ('fbclid', 'gclid')))
+    yield parts.hostname, parts.path.rstrip('/'), parameters
+    if len(job['description']) >= 100 and job['company'] and job['location']:
+        digest = sha256(' '.join(job['description'].casefold().split()).encode()).digest()
+        yield (folded(job['title']), folded(job['company']), folded(job['location']), digest)
+
+
+def posting_expired(value):
+    if isinstance(value, str) and value:
+        with suppress(ValueError):
+            expires = datetime.fromisoformat(value)
+            now = datetime.now(timezone.utc)
+            if len(value) == 10:
+                return expires.date() < now.date()
+            return expires.replace(tzinfo=expires.tzinfo or timezone.utc) <= now
+    return False
+
+
 def safe_listing_url(value):
     if not isinstance(value, str) or len(value) > 4096 or any(ord(c) < 32 for c in value):
         return ''
@@ -104,6 +208,9 @@ def normalize(row, source, company):
         'title': title, 'company': company,
         'location': location, 'url': url, 'source': source, 'remote': remote,
         'description': description,
+        'work_model': clean(row.get('work_model'), 20),
+        'applicant_regions': clean(row.get('applicant_regions'), 500),
+        'valid_through': clean(row.get('valid_through'), 50),
         'search_text': folded(' '.join((title, company, keywords, description))),
     }
 
@@ -133,6 +240,7 @@ def gupy_jobs(companies):
                 'title': row.get('title'), 'company_name': company.get('name'),
                 'location': location, 'url': url, 'description': description,
                 'remote': row.get('remoteWorking'), 'tags': [row.get('type')],
+                'valid_through': row.get('expiringDate'),
             }, 'Gupy', '')
             if job:
                 yield job
@@ -205,10 +313,8 @@ def structured_job(markup, url, source):
             continue
         for posting in posting_nodes(nodes):
             expires = posting.get('validThrough')
-            if isinstance(expires, str):
-                with suppress(ValueError):
-                    if datetime.fromisoformat(expires).date() < datetime.now(timezone.utc).date():
-                        return None
+            if posting_expired(expires):
+                return None
             company = posting.get('hiringOrganization')
             locations = posting.get('jobLocation')
             locations = locations if isinstance(locations, list) else [locations]
@@ -218,12 +324,17 @@ def structured_job(markup, url, source):
                 if isinstance(address, dict):
                     places.extend(clean(address.get(key), 150)
                                   for key in ('addressLocality', 'addressRegion', 'addressCountry'))
+            regions = posting.get('applicantLocationRequirements')
+            regions = regions if isinstance(regions, list) else [regions]
+            eligibility = ', '.join(clean(region.get('name'), 150) for region in regions
+                                    if isinstance(region, dict) and region.get('name'))
             job = normalize({
                 'title': posting.get('title'), 'url': url,
                 'company_name': company.get('name') if isinstance(company, dict) else '',
                 'location': ', '.join(dict.fromkeys(filter(None, places))),
                 'description': posting.get('description'),
                 'remote': posting.get('jobLocationType') == 'TELECOMMUTE',
+                'applicant_regions': eligibility, 'valid_through': expires,
             }, source, '')
             if job:
                 return job
@@ -527,7 +638,15 @@ async def jooble_feed(key, query, location, remote):
 async def discover_jobs(q: str = Query('', max_length=120),
                         location: str = Query('', max_length=100),
                         remote: bool = False,
-                        page: int = Query(1, ge=1)):
+                        page: int = Query(1, ge=1),
+                        title_only: bool = False,
+                        radius_km: Annotated[int, Query(ge=0, le=100)] = 0,
+                        work_model: Literal['', 'remote', 'hybrid', 'onsite'] = '',
+                        level: Literal['', 'intern', 'trainee', 'junior', 'mid', 'senior'] = ''):
+    requested_model = work_model or ('remote' if remote else '')
+    origin = city_center(folded(location)) if radius_km else None
+    if radius_km and origin is None:
+        raise HTTPException(422, 'Para buscar por distância, informe uma cidade brasileira reconhecida. Use cidade e UF se houver ambiguidade.')
     names = [feed[0] for feed in FEEDS.values()]
     requests = [search_feed(key) for key in FEEDS]
     keys = [*FEEDS, 'careers']
@@ -551,11 +670,13 @@ async def discover_jobs(q: str = Query('', max_length=120),
     jooble_key = os.getenv('CAREEROS_JOOBLE_BR_API_KEY', '').strip()
     if jooble_key and q.strip():
         names.append('Jooble')
-        requests.append(jooble_feed(jooble_key, q.strip(), location.strip(), remote))
+        requests.append(jooble_feed(jooble_key, q.strip(), location.strip(), requested_model == 'remote'))
     feeds = await asyncio.gather(*requests)
-    words = folded(q).split()
-    where = re.sub(r'\bbrazil\b', 'brasil', folded(location.strip()))
-    results, seen, sources = [], set(), []
+    terms = search_terms(q)
+    where = folded(location.strip())
+    if where in ('br', 'brazil'):
+        where = 'brasil'
+    candidates, sources = [], []
     for index, (name, (jobs, ok, refreshing)) in enumerate(zip(names, feeds)):
         status = {'name': name, 'available': ok}
         if refreshing:
@@ -565,18 +686,39 @@ async def discover_jobs(q: str = Query('', max_length=120),
             status['updated_at'] = snapshot.updated_at
         if snapshot and snapshot.partial:
             status['partial'] = True
+        status['unique_matches'] = 0
         sources.append(status)
         for job in jobs:
-            if job['url'] in seen:
+            if posting_expired(job.get('valid_through')):
                 continue
-            if name != 'Jooble' and (
-                not all(word in job['search_text'] for word in words) or
-                (where and where not in re.sub(r'\bbrazil\b', 'brasil', folded(job['location']))) or
-                (remote and not job['remote'])
-            ):
+            model = infer_work_model(job)
+            if requested_model and model != requested_model:
                 continue
-            seen.add(job['url'])
-            results.append({k: v for k, v in job.items() if k != 'search_text'})
+            if level and not LEVELS[level].search(folded(job['title'])):
+                continue
+            if not radius_km and not matches_location(job, where, model) and (name != 'Jooble' or where == 'brasil'):
+                continue
+            match = relevance(job, terms, title_only=title_only, provider_matched=name == 'Jooble' and not radius_km)
+            if match is not None:
+                distance = nearest_distance(origin, folded(job['location'])) if origin is not None else None
+                if origin is not None and (distance is None or distance > radius_km):
+                    continue
+                score, scope = match
+                candidates.append((score, distance, status, job, model, scope))
+    results, seen = [], set()
+    for _, distance, status, job, model, scope in sorted(candidates, key=lambda item: (-item[0], item[1] or 0)):
+        identities = tuple(duplicate_keys(job))
+        if seen.intersection(identities):
+            continue
+        seen.update(identities)
+        status['unique_matches'] += 1
+        results.append({
+            **{key: value for key, value in job.items() if key != 'search_text'},
+            'work_model': model, 'remote': model == 'remote',
+            'match_scope': scope,
+            **({'distance_km': round(distance, 1)} if distance is not None else {}),
+            'unconfirmed': not status['available'] and bool(status.get('updated_at')),
+        })
     page = min(page, max(1, (len(results) + PAGE_SIZE - 1) // PAGE_SIZE))
     offset = (page - 1) * PAGE_SIZE
     # Older tabs still call portals.map() on this response.
