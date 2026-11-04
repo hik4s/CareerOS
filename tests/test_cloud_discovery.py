@@ -180,6 +180,32 @@ def test_proximity_expands_only_location_and_keeps_other_filters(monkeypatch):
         app.dependency_overrides.pop(require_user, None)
 
 
+def test_commas_separate_alternatives_but_each_group_keeps_its_terms(monkeypatch):
+    rows = [
+        discovery.normalize({'title': title, 'url': f'https://example.com/jobs/{index}'}, 'Fonte', '')
+        for index, title in enumerate(('Estágio em Design', 'Desenvolvedor Python',
+                                      'Analista de TI', 'Tecnologia de Alimentos', 'Data Intern'))
+    ]
+
+    async def feed(key):
+        return (rows if key == 'arbeitnow' else []), True
+
+    monkeypatch.setattr(discovery, 'get_feed', feed)
+    app.dependency_overrides[require_user] = lambda: User('owner', None, 'token')
+    try:
+        with TestClient(app) as client:
+            broad = client.get('/api/discovery/jobs', params={
+                'q': 'Estágio, python, ti, tecnologia da informação',
+            }).json()
+            assert broad['total'] == 4
+            focused = client.get('/api/discovery/jobs', params={
+                'q': 'estágio Python, estágio em dados', 'title_only': True,
+            }).json()
+            assert [job['title'] for job in focused['jobs']] == ['Data Intern']
+    finally:
+        app.dependency_overrides.pop(require_user, None)
+
+
 def test_jooble_is_merged_into_search_and_cached(monkeypatch):
     calls = []
 

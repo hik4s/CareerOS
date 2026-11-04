@@ -26,7 +26,7 @@ function renderDiscovery() {
     <p>Pesquise, leia as descrições e salve oportunidades em Minhas vagas.</p>
   </div>
   <div class="card"><form id="discoverForm" class="discover-form">
-    <label>Cargo ou palavra-chave<input name="q" maxlength="120" placeholder="Ex.: estágio, Python, design"></label>
+    <label>Cargo ou palavra-chave<input name="q" maxlength="120" placeholder="Ex.: estágio Python, estágio em TI"><small>Use vírgulas para separar alternativas. Palavras sem vírgula são buscadas juntas.</small></label>
     <label>Cidade, região ou país<input name="location" maxlength="100" placeholder="Ex.: São Paulo"></label>
     <label>Distância da cidade<select name="radius_km"><option value="0">Sem raio</option><option value="10">Até 10 km</option><option value="25">Até 25 km</option><option value="50">Até 50 km</option><option value="100">Até 100 km</option></select><small>Com raio, informe uma cidade brasileira. Use cidade e UF se houver ambiguidade.</small></label>
     <label>Modalidade<select name="work_model"><option value="">Todas</option><option value="remote">Remoto</option><option value="hybrid">Híbrido</option><option value="onsite">Presencial</option></select></label>
