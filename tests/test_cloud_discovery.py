@@ -61,6 +61,31 @@ def test_job_description_preserves_list_items_for_reading():
     assert text.splitlines() == ['Requisitos', '• Python', '• SQL']
 
 
+def test_jsearch_ingests_only_links_from_the_expected_portal(monkeypatch):
+    import asyncio
+
+    calls = []
+
+    async def fetch(method, url, field, **options):
+        calls.append((method, url, field, options))
+        return [
+            {'job_title': 'Estágio Python', 'employer_name': 'Empresa',
+             'job_city': 'São Paulo', 'job_state': 'SP', 'job_country': 'BR',
+             'job_description': 'Desenvolvimento com Python',
+             'job_apply_link': 'https://www.linkedin.com/jobs/view/1'},
+            {'job_title': 'Vaga', 'job_publisher': 'LinkedIn',
+             'job_apply_link': 'https://linkedin.com.example.com/jobs/view/2'},
+        ]
+
+    monkeypatch.setattr(discovery, 'fetch_rows', fetch)
+    job, = asyncio.run(discovery.jsearch_jobs('jsearch_linkedin', 'test-key'))
+    assert job['source'] == 'LinkedIn via JSearch'
+    assert job['location'] == 'São Paulo, SP, Brasil'
+    assert calls[0][3]['headers']['x-api-key'] == 'test-key'
+    assert calls[0][3]['params']['country'] == 'br'
+    assert 'via LinkedIn' in calls[0][3]['params']['query']
+
+
 def test_search_matches_description_and_paginates(monkeypatch):
     rows = [
         discovery.normalize({

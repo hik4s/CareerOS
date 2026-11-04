@@ -36,12 +36,19 @@ FEEDS = {
     )
 }
 FEEDS['arbeitnow'] = ('Arbeitnow', 'https://www.arbeitnow.com/api/job-board-api', 'data', '')
+JSEARCH_PORTALS = {
+    'jsearch_linkedin': ('LinkedIn', ('linkedin.com',)),
+    'jsearch_indeed': ('Indeed', ('indeed.com', 'indeed.com.br')),
+    'jsearch_glassdoor': ('Glassdoor', ('glassdoor.com', 'glassdoor.com.br')),
+}
+JSEARCH_TTL = 24 * 3600
 PAGE_SIZE = 20
 CACHE_TTL = 300
 MAX_FEED_BYTES = 5 * 1024 * 1024
 _cache = {}
 _refresh_tasks = {}
 _locks = {key: asyncio.Lock() for key in FEEDS}
+_locks.update({key: asyncio.Lock() for key in JSEARCH_PORTALS})
 _locks.update(gupy=asyncio.Lock(), careers=asyncio.Lock(), employer=asyncio.Lock(),
               syndication=asyncio.Lock())
 CAREER_TTL = 3600
@@ -263,8 +270,8 @@ def gupy_jobs(companies):
                 yield job
 
 
-async def fetch_content(method, url, *, accept, authorization='', client=None, **options):
-    headers = {'Accept': accept, 'User-Agent': 'CareerOS'}
+async def fetch_content(method, url, *, accept, authorization='', client=None, headers=None, **options):
+    headers = {'Accept': accept, 'User-Agent': 'CareerOS', **(headers or {})}
     if authorization:
         headers['Authorization'] = authorization
     async with asyncio.timeout(10), AsyncExitStack() as stack:
@@ -287,6 +294,48 @@ async def fetch_rows(method, url, field, **options):
     if not isinstance(rows, list):
         raise ValueError('Invalid feed')
     return rows
+
+
+async def jsearch_jobs(key, token):
+    publisher, domains = JSEARCH_PORTALS[key]
+    rows = await fetch_rows(
+        'GET', 'https://api.openwebninja.com/jsearch/search', 'data',
+        headers={'x-api-key': token},
+        params={'query': f'estágio tecnologia da informação Brasil via {publisher}',
+                'country': 'br', 'language': 'pt', 'date_posted': 'month'},
+    )
+    jobs = []
+    for row in rows[:50]:
+        if not isinstance(row, dict):
+            continue
+        options = row.get('apply_options')
+        links = [row.get('job_apply_link')]
+        if isinstance(options, list):
+            links.extend(option.get('apply_link') for option in options[:20] if isinstance(option, dict))
+        for link in links:
+            if not safe_listing_url(link):
+                continue
+            host = urlsplit(link).hostname
+            if any(host == domain or host.endswith('.' + domain) for domain in domains):
+                break
+        else:
+            continue
+        country = clean(row.get('job_country'), 20).upper()
+        if country and country != 'BR':
+            continue
+        location = ', '.join(filter(None, (clean(row.get('job_city'), 150),
+                                            clean(row.get('job_state'), 100))))
+        location = location or clean(row.get('job_location'), 300)
+        if country == 'BR' and not re.search(r'\b(?:brasil|brazil|br)\b', folded(location)):
+            location = ', '.join(filter(None, (location, 'Brasil')))
+        job = normalize({
+            'title': row.get('job_title'), 'company_name': row.get('employer_name'),
+            'url': link, 'location': location, 'description': row.get('job_description'),
+            'remote': row.get('job_is_remote'),
+        }, f'{publisher} via JSearch', '')
+        if job:
+            jobs.append(job)
+    return jobs
 
 
 class JobMarkup(HTMLParser):
@@ -489,7 +538,11 @@ def read_snapshot(key):
             or any(not isinstance(job, dict) or not all(isinstance(job.get(field), str) for field in fields)
                    or not isinstance(job.get('remote'), bool) for job in jobs)):
             raise ValueError('Invalid snapshot')
-        return Snapshot(0, jobs, False, updated)
+        remaining = 0
+        if key in JSEARCH_PORTALS and updated:
+            age = (datetime.now(timezone.utc) - datetime.fromisoformat(updated)).total_seconds()
+            remaining = max(0, JSEARCH_TTL - max(0, age))
+        return Snapshot(time.monotonic() + remaining, jobs, bool(remaining), updated)
     except (OSError, ValueError, KeyError, TypeError, RecursionError):
         return Snapshot(0, [], False, None)
 
@@ -535,6 +588,8 @@ async def get_feed(key, gupy_url='', gupy_token='', *, force=False):
                 source, url = syndication_settings()
                 content = await fetch_content('GET', url, accept='application/rss+xml, application/atom+xml, application/xml')
                 jobs = syndicated_jobs(content, source)
+            elif key in JSEARCH_PORTALS:
+                jobs = await jsearch_jobs(key, os.environ['CAREEROS_JSEARCH_API_KEY'].strip())
             elif key == 'gupy':
                 rows = await fetch_rows('GET', gupy_url, 'companies', authorization=gupy_token)
                 jobs = list(gupy_jobs(rows))
@@ -545,11 +600,16 @@ async def get_feed(key, gupy_url='', gupy_token='', *, force=False):
                 if rows and not jobs:
                     raise ValueError('No valid postings in nonempty feed')
             ttl = CAREER_TTL if key in ('careers', 'employer') and not partial else CACHE_TTL
+            if key in JSEARCH_PORTALS:
+                ttl = JSEARCH_TTL
             snapshot = Snapshot(time.monotonic() + ttl, jobs, not partial,
                                 datetime.now(timezone.utc).isoformat(), partial)
             await asyncio.to_thread(save_snapshot, key, snapshot)
         except (httpx.HTTPError, TimeoutError, ValueError, ElementTree.ParseError, RecursionError):
-            snapshot = Snapshot(time.monotonic() + (300 if key in ('careers', 'employer') else 30),
+            retry = 300 if key in ('careers', 'employer') else 30
+            if key in JSEARCH_PORTALS:
+                retry = JSEARCH_TTL
+            snapshot = Snapshot(time.monotonic() + retry,
                                 cached.jobs, False, cached.updated_at)
         _cache[key] = snapshot
         return snapshot.jobs, snapshot.available
@@ -585,6 +645,8 @@ async def refresh_catalog():
         await asyncio.sleep(CACHE_TTL)
         settings = gupy_settings()
         tasks = [search_feed(key) for key in (*FEEDS, 'careers')]
+        if os.getenv('CAREEROS_JSEARCH_API_KEY', '').strip():
+            tasks.extend(search_feed(key) for key in JSEARCH_PORTALS)
         if employer_settings():
             tasks.append(search_feed('employer'))
         if syndication_settings():
@@ -669,6 +731,11 @@ async def discover_jobs(q: str = Query('', max_length=120),
     keys = [*FEEDS, 'careers']
     names.append(ONJOB[0])
     requests.append(search_feed('careers'))
+    if os.getenv('CAREEROS_JSEARCH_API_KEY', '').strip():
+        for key, (publisher, _) in JSEARCH_PORTALS.items():
+            keys.append(key)
+            names.append(f'{publisher} via JSearch')
+            requests.append(search_feed(key))
     employer = employer_settings()
     if employer:
         keys.append('employer')
