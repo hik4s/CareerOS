@@ -47,7 +47,132 @@ function jobReadingSections(description) {
     }
   }
   if (current.lines.some(Boolean)) sections.push(current);
-  return sections;
+  const grouped = new Map();
+  for (const section of sections) {
+    const existing = grouped.get(section.title);
+    if (existing) existing.lines.push('', ...section.lines);
+    else grouped.set(section.title, section);
+  }
+  return [...grouped.values()];
+}
+
+function jobReadingBlocks(lines) {
+  const blocks = [];
+  let bullets = [];
+  const flush = () => {
+    if (bullets.length) blocks.push({bullets});
+    bullets = [];
+  };
+  for (const line of lines) {
+    const bullet = line.match(/^(?:[•●▪*-]|\d+[.)])\s+(.+)/);
+    if (bullet) {
+      bullets.push(bullet[1]);
+      continue;
+    }
+    flush();
+    if (!line) continue;
+    const sentences = line.length > 400 && typeof Intl.Segmenter === 'function'
+      ? [...new Intl.Segmenter(undefined, {granularity: 'sentence'}).segment(line)].map(item => item.segment)
+      : [line];
+    let paragraph = '';
+    for (const sentence of sentences) {
+      if (paragraph && paragraph.length + sentence.length > 400) {
+        blocks.push({text: paragraph.trim()});
+        paragraph = '';
+      }
+      paragraph += sentence;
+    }
+    if (paragraph.trim()) blocks.push({text: paragraph.trim()});
+  }
+  flush();
+  return blocks;
+}
+
+function renderJobReading(sections, missing) {
+  const body = $('jobDetailsBody');
+  body.innerHTML = (sections.length > 1 ? `<nav class="job-reading-index" aria-label="Seções da vaga">
+    ${sections.map((section, index) => `<button type="button" class="secondary small" data-reading-section="${index}">${esc(section.title)}</button>`).join('')}
+  </nav>` : '') + (sections.length ? sections.map((section, index) =>
+    `<section id="job-reading-section-${index}"><h3>${esc(section.title)}</h3>${jobReadingBlocks(section.lines).map(block =>
+      block.bullets ? `<ul>${block.bullets.map(text => `<li>${esc(text)}</li>`).join('')}</ul>`
+        : `<p>${esc(block.text)}</p>`
+    ).join('')}</section>`
+  ).join('') : '<p>A fonte não informou a descrição desta vaga.</p>') +
+    (missing?.length ? `<section><h3>A desenvolver</h3><p>${missing.map(esc).join(', ')}</p></section>` : '');
+  body.querySelectorAll('[data-reading-section]').forEach(button => {
+    button.onclick = () => $('job-reading-section-' + button.dataset.readingSection).scrollIntoView({block: 'start'});
+  });
+}
+
+let jobTranslation;
+async function translateJobReading(job, sections, language) {
+  jobTranslation?.abort();
+  const controller = new AbortController();
+  jobTranslation = controller;
+  const {signal} = controller;
+  const status = $('jobTranslationStatus');
+  const retry = $('retryJobTranslation');
+  const missing = job.analysis?.missing_skills;
+  $('jobDetailsTitle').textContent = job.title;
+  renderJobReading(sections, missing);
+  retry.hidden = true;
+  status.textContent = '';
+  if (language === 'original' || !sections.length) return;
+  if (!globalThis.Translator || !globalThis.LanguageDetector) {
+    status.textContent = 'Tradução integrada indisponível neste navegador. Exibindo o original.';
+    return;
+  }
+  let detector, translator;
+  try {
+    status.textContent = 'Identificando idioma…';
+    detector = await LanguageDetector.create({signal});
+    const [detected] = await detector.detect(job.description.slice(0, 3500), {signal});
+    signal.throwIfAborted();
+    const sourceLanguage = detected?.detectedLanguage;
+    if (!sourceLanguage || sourceLanguage === 'und' || detected.confidence < 0.5) {
+      status.textContent = 'Idioma do anúncio não identificado. Exibindo o original.';
+      return;
+    }
+    if (sourceLanguage.split('-')[0] === 'pt') {
+      status.textContent = 'Anúncio original em português.';
+      return;
+    }
+    let options = {sourceLanguage, targetLanguage: language};
+    if (await Translator.availability(options) === 'unavailable') {
+      options = {sourceLanguage, targetLanguage: 'pt'};
+      if (await Translator.availability(options) === 'unavailable') {
+        status.textContent = 'Tradução indisponível para o idioma deste anúncio.';
+        return;
+      }
+    }
+    status.textContent = 'Preparando tradução neste dispositivo…';
+    translator = await Translator.create({...options, signal});
+    status.textContent = 'Traduzindo anúncio…';
+    const title = await translator.translate(job.title, {signal});
+    const translated = [];
+    for (const section of sections) {
+      const lines = [];
+      for (const block of jobReadingBlocks(section.lines)) {
+        if (block.bullets) {
+          for (const text of block.bullets) lines.push('• ' + await translator.translate(text, {signal}));
+        } else {
+          lines.push(await translator.translate(block.text, {signal}));
+        }
+      }
+      translated.push({title: section.title, lines});
+    }
+    signal.throwIfAborted();
+    $('jobDetailsTitle').textContent = title;
+    renderJobReading(translated, missing);
+    status.textContent = 'Tradução automática para português.';
+  } catch {
+    if (signal.aborted) return;
+    retry.hidden = false;
+    status.textContent = 'A tradução não ficou pronta. Você pode tentar novamente.';
+  } finally {
+    detector?.destroy?.();
+    translator?.destroy?.();
+  }
 }
 
 function openJobDetails(job, {onSave, saved = false} = {}) {
@@ -58,11 +183,17 @@ function openJobDetails(job, {onSave, saved = false} = {}) {
   $('jobDetailsMeta').textContent = [job.company || 'Empresa não informada', job.location, model, job.source]
     .filter(Boolean).join(' · ');
   const sections = jobReadingSections(job.description);
-  const missing = job.analysis?.missing_skills;
-  $('jobDetailsBody').innerHTML = (sections.length ? sections.map(section =>
-    `<section><h3>${esc(section.title)}</h3><p>${esc(section.lines.join('\n').trim())}</p></section>`
-  ).join('') : '<p>A fonte não informou a descrição desta vaga.</p>') +
-    (missing?.length ? `<section><h3>A desenvolver</h3><p>${missing.map(esc).join(', ')}</p></section>` : '');
+  const language = $('jobReadingLanguage');
+  const preference = 'careeros.job-reading-language.' + session?.user.id;
+  let stored = 'pt-BR';
+  try { stored = localStorage.getItem(preference) || stored; } catch {}
+  language.value = stored === 'original' ? 'original' : 'pt-BR';
+  const translate = () => translateJobReading(job, sections, language.value);
+  language.onchange = () => {
+    try { localStorage.setItem(preference, language.value); } catch {}
+    translate();
+  };
+  $('retryJobTranslation').onclick = translate;
   $('jobDetailsActions').innerHTML = `
     ${onSave ? `<button type="button" id="saveJobFromDetails" ${saved ? 'disabled' : ''}>${saved ? 'Já salva' : 'Revisar e salvar'}</button>` : ''}
     ${url ? `<a class="button secondary" href="${esc(url)}" target="_blank" rel="noopener noreferrer">Abrir candidatura ↗</a>` : ''}
@@ -70,9 +201,18 @@ function openJobDetails(job, {onSave, saved = false} = {}) {
   if (onSave) $('saveJobFromDetails').onclick = () => { dialog.close(); onSave(); };
   $('jobDetailsBody').scrollTop = 0;
   dialog.showModal();
+  translate();
 }
 
-$('closeJobDetails').onclick = () => $('jobDetailsDialog').close();
+const jobDetailsDialog = $('jobDetailsDialog');
+$('closeJobDetails').onclick = () => jobDetailsDialog.close();
+jobDetailsDialog.onclose = () => jobTranslation?.abort();
+let jobBackdropPressed = false;
+jobDetailsDialog.onpointerdown = event => { jobBackdropPressed = event.target === jobDetailsDialog; };
+jobDetailsDialog.onclick = event => {
+  if (jobBackdropPressed && event.target === jobDetailsDialog) jobDetailsDialog.close();
+  jobBackdropPressed = false;
+};
 
 function renderDiscovery() {
   $('view').innerHTML = `<div class="hero">

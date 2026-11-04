@@ -56,6 +56,11 @@ def test_greenhouse_description_preserves_readable_paragraphs():
     assert job['description'].splitlines() == ['Aprenda Python.', 'Trabalhe em equipe.']
 
 
+def test_job_description_preserves_list_items_for_reading():
+    text = discovery.description_text('<h2>Requisitos</h2><ul><li>Python</li><li>SQL</li></ul>')
+    assert text.splitlines() == ['Requisitos', '• Python', '• SQL']
+
+
 def test_search_matches_description_and_paginates(monkeypatch):
     rows = [
         discovery.normalize({
