@@ -37,7 +37,7 @@ def test_discovery_filters_deduplicates_and_reports_outage(monkeypatch):
         assert result['total'] == 1
         assert result['jobs'][0]['url'] == 'https://example.com/jobs/1'
         assert {'name': 'Brex', 'available': False} in result['sources']
-        assert 'portals' not in result
+        assert result['portals'] == []
     finally:
         app.dependency_overrides.pop(require_user, None)
 
