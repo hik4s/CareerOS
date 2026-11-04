@@ -143,6 +143,43 @@ def test_search_collapses_tracking_links_and_hides_expired_postings(monkeypatch)
         app.dependency_overrides.pop(require_user, None)
 
 
+def test_proximity_expands_only_location_and_keeps_other_filters(monkeypatch):
+    rows = [
+        discovery.normalize({
+            'title': title, 'location': city, 'work_model': model,
+            'url': f'https://example.com/jobs/{slug}',
+        }, 'Fonte', '')
+        for slug, title, city, model in (
+            ('near', 'Estágio em Python', 'Guarulhos, SP', 'hybrid'),
+            ('far', 'Estágio em Python', 'Campinas, São Paulo, Brasil', 'hybrid'),
+            ('wrong-role', 'Estágio em Design', 'Osasco, SP', 'hybrid'),
+            ('wrong-model', 'Estágio em Python', 'Osasco, SP', 'onsite'),
+            ('wrong-level', 'Analista Python Sênior', 'Osasco, SP', 'hybrid'),
+            ('no-city', 'Estágio em Python', 'Brasil', 'hybrid'),
+        )
+    ]
+
+    async def feed(key):
+        return (rows if key == 'arbeitnow' else []), True
+
+    monkeypatch.setattr(discovery, 'get_feed', feed)
+    app.dependency_overrides[require_user] = lambda: User('owner', None, 'token')
+    try:
+        with TestClient(app) as client:
+            result = client.get('/api/discovery/jobs', params={
+                'q': 'Python', 'location': 'São Paulo', 'radius_km': 25,
+                'work_model': 'hybrid', 'level': 'intern', 'title_only': True,
+            }).json()
+            job, = result['jobs']
+            assert job['url'].endswith('/near')
+            assert 0 < job['distance_km'] < 25
+            assert client.get('/api/discovery/jobs', params={
+                'location': 'Brasil', 'radius_km': 25,
+            }).status_code == 422
+    finally:
+        app.dependency_overrides.pop(require_user, None)
+
+
 def test_jooble_is_merged_into_search_and_cached(monkeypatch):
     calls = []
 

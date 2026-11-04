@@ -28,6 +28,7 @@ function renderDiscovery() {
   <div class="card"><form id="discoverForm" class="discover-form">
     <label>Cargo ou palavra-chave<input name="q" maxlength="120" placeholder="Ex.: estágio, Python, design"></label>
     <label>Cidade, região ou país<input name="location" maxlength="100" placeholder="Ex.: São Paulo"></label>
+    <label>Distância da cidade<select name="radius_km"><option value="0">Sem raio</option><option value="10">Até 10 km</option><option value="25">Até 25 km</option><option value="50">Até 50 km</option><option value="100">Até 100 km</option></select><small>Com raio, informe uma cidade brasileira. Use cidade e UF se houver ambiguidade.</small></label>
     <label>Modalidade<select name="work_model"><option value="">Todas</option><option value="remote">Remoto</option><option value="hybrid">Híbrido</option><option value="onsite">Presencial</option></select></label>
     <label>Nível<select name="level"><option value="">Todos</option><option value="intern">Estágio ou aprendizagem</option><option value="trainee">Trainee</option><option value="junior">Júnior</option><option value="mid">Pleno</option><option value="senior">Sênior</option></select></label>
     <label class="discover-check"><input type="checkbox" name="title_only"> Buscar palavras-chave somente no título</label>
@@ -49,12 +50,14 @@ function renderDiscovery() {
   const draft = state.draft ?? {};
   form.elements.q.value = draft.q ?? '';
   form.elements.location.value = draft.location ?? '';
+  form.elements.radius_km.value = draft.radius_km ?? '0';
   form.elements.work_model.value = draft.work_model ?? (draft.remote === 'true' ? 'remote' : '');
   form.elements.level.value = draft.level ?? '';
   form.elements.title_only.checked = draft.title_only === 'true';
   const filters = () => ({
     q: form.elements.q.value.trim(),
     location: form.elements.location.value.trim(),
+    radius_km: form.elements.radius_km.value,
     work_model: form.elements.work_model.value,
     level: form.elements.level.value,
     title_only: String(form.elements.title_only.checked),
@@ -147,6 +150,7 @@ function renderDiscoveryResults(result, goToPage) {
       ${job.match_scope === 'title' ? '<span class="badge">Termos no título</span>' : ''}
       ${job.match_scope === 'details' ? '<span class="badge">Termos nos detalhes</span>' : ''}
       ${job.match_scope === 'provider' ? '<span class="badge">Sugestão da fonte</span>' : ''}
+      ${Number.isFinite(job.distance_km) ? `<span class="badge">≈ ${job.distance_km.toLocaleString('pt-BR')} km</span>` : ''}
       ${job.unconfirmed ? '<span class="badge">Abertura ainda não reconfirmada</span>' : ''}
       <details><summary>Ver detalhes</summary><p class="job-desc">${esc(job.description || 'A fonte não informou a descrição desta vaga.')}</p></details>
       <div class="job-actions">

@@ -14,7 +14,7 @@ import os
 import re
 import time
 import unicodedata
-from typing import Literal
+from typing import Annotated, Literal
 from urllib.parse import parse_qsl, quote, urlsplit
 from xml.etree import ElementTree
 
@@ -22,6 +22,7 @@ import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from .auth import require_user
+from .proximity import city_center, nearest_distance
 
 router = APIRouter(prefix='/api/discovery', dependencies=[Depends(require_user)])
 FEEDS = {
@@ -639,9 +640,13 @@ async def discover_jobs(q: str = Query('', max_length=120),
                         remote: bool = False,
                         page: int = Query(1, ge=1),
                         title_only: bool = False,
+                        radius_km: Annotated[int, Query(ge=0, le=100)] = 0,
                         work_model: Literal['', 'remote', 'hybrid', 'onsite'] = '',
                         level: Literal['', 'intern', 'trainee', 'junior', 'mid', 'senior'] = ''):
     requested_model = work_model or ('remote' if remote else '')
+    origin = city_center(folded(location)) if radius_km else None
+    if radius_km and origin is None:
+        raise HTTPException(422, 'Para buscar por distância, informe uma cidade brasileira reconhecida. Use cidade e UF se houver ambiguidade.')
     names = [feed[0] for feed in FEEDS.values()]
     requests = [search_feed(key) for key in FEEDS]
     keys = [*FEEDS, 'careers']
@@ -691,14 +696,17 @@ async def discover_jobs(q: str = Query('', max_length=120),
                 continue
             if level and not LEVELS[level].search(folded(job['title'])):
                 continue
-            if not matches_location(job, where, model) and (name != 'Jooble' or where == 'brasil'):
+            if not radius_km and not matches_location(job, where, model) and (name != 'Jooble' or where == 'brasil'):
                 continue
-            match = relevance(job, terms, title_only=title_only, provider_matched=name == 'Jooble')
+            match = relevance(job, terms, title_only=title_only, provider_matched=name == 'Jooble' and not radius_km)
             if match is not None:
+                distance = nearest_distance(origin, folded(job['location'])) if origin is not None else None
+                if origin is not None and (distance is None or distance > radius_km):
+                    continue
                 score, scope = match
-                candidates.append((score, status, job, model, scope))
+                candidates.append((score, distance, status, job, model, scope))
     results, seen = [], set()
-    for _, status, job, model, scope in sorted(candidates, key=lambda item: -item[0]):
+    for _, distance, status, job, model, scope in sorted(candidates, key=lambda item: (-item[0], item[1] or 0)):
         identities = tuple(duplicate_keys(job))
         if seen.intersection(identities):
             continue
@@ -708,6 +716,7 @@ async def discover_jobs(q: str = Query('', max_length=120),
             **{key: value for key, value in job.items() if key != 'search_text'},
             'work_model': model, 'remote': model == 'remote',
             'match_scope': scope,
+            **({'distance_km': round(distance, 1)} if distance is not None else {}),
             'unconfirmed': not status['available'] and bool(status.get('updated_at')),
         })
     page = min(page, max(1, (len(results) + PAGE_SIZE - 1) // PAGE_SIZE))

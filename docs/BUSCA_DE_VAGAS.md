@@ -8,6 +8,15 @@ Marque **Buscar palavras-chave somente no título** para exigir que todos
 os termos relevantes apareçam no cargo, incluindo equivalentes como
 estágio e intern. Na busca ampla, os resultados indicam se os termos
 estão no título, nos detalhes ou se a vaga foi sugerida pela fonte.
+
+Para incluir cidades próximas, escolha um raio em **Distância da cidade**
+e informe uma cidade brasileira. A distância aproximada é em linha reta
+entre os centros das cidades. O raio altera apenas o filtro de localização.
+Os outros filtros continuam valendo, e vagas sem cidade identificável ficam
+fora. A ordenação mantém a relevância em primeiro lugar e usa a distância
+para desempatar. O catálogo local é um recorte brasileiro de
+[`cities15000` do GeoNames](https://www.geonames.org/export/), com nomes
+normalizados, UF e coordenadas arredondadas, sob licença CC BY 4.0.
 Os resultados aparecem em uma lista paginada. Use **Ver detalhes** para ler
 a descrição e **Revisar e salvar** para adicionar a oportunidade a **Minhas vagas**.
 O link de candidatura abre a página da vaga no site de origem.
