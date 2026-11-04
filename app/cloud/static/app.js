@@ -12,13 +12,67 @@ function empty(title,text){return `<div class="empty"><div class="empty-icon">�
 function safeURL(url){try{const u=new URL(url);return ['https:','http:'].includes(u.protocol)?u.href:''}catch{return ''}}
 function date(value){return value?new Date(value).toLocaleDateString('pt-BR'):''}
 async function reload(){const generation=++loadGeneration;$('loading').classList.remove('hidden');try{const data=await Promise.all([api('/api/profile'),api('/api/jobs'),api('/api/resumes'),api('/api/ai/history')]);if(generation!==loadGeneration||!session)return;[profile,jobs,resumes,history]=data;render()}catch(e){if(generation===loadGeneration)toast(e.message,true)}finally{if(generation===loadGeneration)$('loading').classList.add('hidden')}}
-function clearAccount(){loadGeneration++;apiKey='';profile={};jobs=[];resumes=[];history=[];estimate=null;estimatePayload=null;aiResult='';aiDraft={provider:'heuristic',model:'',task:'evaluate',job_id:'',resume_id:'',instruction:'',previous_text:'',max_output_tokens:512,input_price_per_million:'',output_price_per_million:''};$('view').replaceChildren();$('accountName').textContent='Minha conta';$('accountEmail').textContent='';$('avatar').textContent='C';$('jobForm').reset();$('jobDialog').close()}
+function clearAccount(){loadGeneration++;apiKey='';profile={};jobs=[];resumes=[];history=[];estimate=null;estimatePayload=null;aiResult='';aiDraft={provider:'heuristic',model:'',task:'evaluate',job_id:'',resume_id:'',instruction:'',previous_text:'',max_output_tokens:512,input_price_per_million:'',output_price_per_million:''};$('view').replaceChildren();$('accountName').textContent='Minha conta';$('accountEmail').textContent='';$('avatar').textContent='C';$('jobForm').reset();$('jobDialog').close();$('jobDetailsDialog').close()}
 function showSession(next){if(session?.user?.id!==next?.user?.id)clearAccount();session=next;const path=next?'/':'/auth';if(location.pathname!==path)window.history.replaceState(null,'',path+location.search+location.hash);$('gate').classList.toggle('hidden',!!next);$('shell').classList.toggle('hidden',!next);if(!next){clearAccount();return}const user=next.user;$('accountName').textContent=user.user_metadata?.full_name||user.email?.split('@')[0]||'Minha conta';$('accountEmail').textContent=user.email||'';$('avatar').textContent=($('accountName').textContent[0]||'C').toUpperCase();reload()}
 function setTab(){const next=location.hash.slice(1);tab=Object.hasOwn(titles,next)?next:'overview';render()}
 function render(){if(!session)return;$('pageTitle').textContent=titles[tab];document.querySelectorAll('[data-tab]').forEach(a=>a.classList.toggle('active',a.dataset.tab===tab));({overview:renderOverview,jobs:renderJobs,discover:renderDiscovery,profile:renderProfile,resumes:renderResumes,ai:renderAI,capture:renderCapture,data:renderData})[tab]()}
 function renderOverview(){const active=jobs.filter(j=>!['archived','rejected'].includes(j.status));const first=profile.full_name?.split(' ')[0];$('view').innerHTML=`<div class="hero"><span class="eyebrow">UM PASSO DE CADA VEZ</span><h2>${first?`Olá, ${esc(first)}. `:''}Sua próxima oportunidade<br>merece um bom plano.</h2><p>Acompanhe suas candidaturas e prepare materiais com base no que você realmente sabe e já construiu.</p><a class="button" href="#jobs">Explorar minhas vagas <span>→</span></a></div><div class="metrics">${[[jobs.length,'Vagas salvas','Seu repertório de oportunidades','▣'],[jobs.filter(j=>j.status==='applied').length,'Candidaturas enviadas','Etapa marcada por você','↗'],[jobs.filter(j=>j.status==='interview').length,'Em entrevista','Conversas em andamento','◎'],[resumes.length,'Currículos','Arquivos na sua conta','▤']].map(([n,l,d,i])=>`<div class="metric"><span class="metric-icon">${i}</span><span class="metric-label">${l}</span><strong>${n}</strong><small>${d}</small></div>`).join('')}</div><div class="grid-two"><div class="card"><div class="section-head"><div><h2>No seu radar</h2><p>Suas oportunidades em andamento.</p></div><a class="inline-link" href="#jobs">Ver todas →</a></div>${active.length?active.slice(0,3).map(j=>`<div class="file-row"><div><h3>${esc(j.title)}</h3><small>${esc(j.company)} · ${stages[j.status]||esc(j.status)}</small></div><span class="badge">${j.fit_score==null?'Sem análise':`${esc(j.fit_score)}% de aderência`}</span></div>`).join(''):empty('Seu radar está pronto','Salve sua primeira vaga para começar a acompanhar as possibilidades.')}</div><div class="card"><div class="section-head"><h2>Construa sua base</h2></div><div class="steps"><div class="step"><span class="step-number">01</span><div><a href="#profile">Dê contexto ao seu perfil →</a><p>Habilidades, projetos e experiências reais.</p></div></div><div class="step"><span class="step-number">02</span><div><a href="#resumes">Organize seus currículos →</a><p>Seus arquivos sempre à mão.</p></div></div><div class="step"><span class="step-number">03</span><div><a href="#ai">Prepare o próximo passo →</a><p>Revise seus materiais com assistência.</p></div></div></div></div></div>`}
-function jobCard(j){const a=j.analysis||{};const url=safeURL(j.url);return `<article class="job"><div class="job-top"><div><h3>${esc(j.title)}</h3><p>${esc(j.company)}${j.location?' · '+esc(j.location):''}${j.work_model?' · '+esc(j.work_model):''}</p></div><span class="score">${j.fit_score==null?'Sem análise':`${esc(j.fit_score)}% aderência`}</span></div><div>${(a.matched_skills||[]).map(s=>`<span class="badge">${esc(s)}</span>`).join('')}</div>${(a.blockers||[]).map(s=>`<p>${esc(s)}</p>`).join('')}<details><summary>Descrição e análise</summary><p class="job-desc">${esc(j.description)}</p>${a.missing_skills?.length?`<p>A desenvolver: ${a.missing_skills.map(esc).join(', ')}</p>`:''}<p class="fine">Aderência é uma comparação local de palavras e perfil. Não prevê seleção ou contratação.</p></details><div class="job-actions"><select aria-label="Etapa de ${esc(j.title)}" data-stage="${esc(j.id)}">${Object.entries(stages).map(([v,l])=>`<option value="${v}" ${j.status===v?'selected':''}>${l}</option>`).join('')}</select><button class="small secondary" data-analyze="${esc(j.id)}">Analisar perfil</button><button class="small secondary" data-edit="${esc(j.id)}">Editar</button>${url?`<a class="button secondary small" href="${esc(url)}" target="_blank" rel="noopener noreferrer">Abrir ↗</a>`:''}<button class="small danger" data-delete="${esc(j.id)}">Excluir</button></div></article>`}
+function jobCard(j){const a=j.analysis||{};const url=safeURL(j.url);return `<article class="job"><div class="job-top"><div><h3><button type="button" class="job-title-button" data-job-details="${esc(j.id)}">${esc(j.title)}</button></h3><p>${esc(j.company)}${j.location?' · '+esc(j.location):''}${j.work_model?' · '+esc(j.work_model):''}</p></div><span class="score">${j.fit_score==null?'Sem análise':`${esc(j.fit_score)}% aderência`}</span></div><div>${(a.matched_skills||[]).map(s=>`<span class="badge">${esc(s)}</span>`).join('')}</div>${(a.blockers||[]).map(s=>`<p>${esc(s)}</p>`).join('')}<div class="job-actions"><select aria-label="Etapa de ${esc(j.title)}" data-stage="${esc(j.id)}">${Object.entries(stages).map(([v,l])=>`<option value="${v}" ${j.status===v?'selected':''}>${l}</option>`).join('')}</select><button class="small secondary" data-analyze="${esc(j.id)}">Analisar perfil</button><button class="small secondary" data-edit="${esc(j.id)}">Editar</button>${url?`<a class="button secondary small" href="${esc(url)}" target="_blank" rel="noopener noreferrer">Abrir ↗</a>`:''}<button class="small danger" data-delete="${esc(j.id)}">Excluir</button></div></article>`}
 const workModelLabels = {remote: 'Remoto', hybrid: 'Híbrido', onsite: 'Presencial'};
+const jobSectionHeadings = [
+  ['Objetivos da vaga', /^(objetivos?( da vaga| do cargo)?|missao( do cargo| da vaga)?|role overview|role purpose|about the role|the role)$/],
+  ['Responsabilidades', /^(principais )?(responsabilidades( e atribuicoes)?|atribuicoes|atividades( do cargo| do dia a dia)?|what you('ll| will) do|responsibilities|key responsibilities|duties)$/],
+  ['Requisitos', /^(principais )?(requisitos( obrigatorios| e qualificacoes)?|pre[- ]requisitos|qualificacoes|o que (buscamos|esperamos)|requirements|what you('ll| will) need|qualifications|minimum qualifications|preferred qualifications|what you bring)$/],
+  ['Formação', /^(formacao( academica| exigida)?|escolaridade|educacao|education|educational requirements)$/],
+  ['Salário', /^(salario|faixa salarial|remuneracao|bolsa([- ]auxilio)?|salary|salary range|compensation|pay range)$/],
+  ['Benefícios', /^(beneficios|o que oferecemos|benefits|perks|what we offer)$/],
+  ['Sobre a empresa', /^(empresa|sobre a empresa|sobre nos|quem somos|about us|about the company|company overview)$/],
+];
+
+function jobReadingSections(description) {
+  const sections = [];
+  let current = {title: 'Sobre a vaga', lines: []};
+  for (const raw of (description || '').split(/\r?\n/)) {
+    const line = raw.trim();
+    const [heading] = line.split(':', 1);
+    const key = heading.replace(/^[#•*\s]+|[•*\s]+$/g, '').normalize('NFD')
+      .replace(/\p{M}/gu, '').replace(/[‘’]/g, "'").toLowerCase();
+    const section = jobSectionHeadings.find(([, pattern]) => pattern.test(key));
+    if (section) {
+      if (current.lines.some(Boolean)) sections.push(current);
+      const inline = line.slice(heading.length + 1).trim();
+      current = {title: section[0], lines: inline ? [inline] : []};
+    } else {
+      current.lines.push(line);
+    }
+  }
+  if (current.lines.some(Boolean)) sections.push(current);
+  return sections;
+}
+
+function openJobDetails(job, {onSave, saved = false} = {}) {
+  const dialog = $('jobDetailsDialog');
+  const url = safeURL(job.url);
+  const model = workModelLabels[job.work_model] || job.work_model || (job.remote ? 'Remoto' : '');
+  $('jobDetailsTitle').textContent = job.title;
+  $('jobDetailsMeta').textContent = [job.company || 'Empresa não informada', job.location, model, job.source]
+    .filter(Boolean).join(' · ');
+  const sections = jobReadingSections(job.description);
+  const missing = job.analysis?.missing_skills;
+  $('jobDetailsBody').innerHTML = (sections.length ? sections.map(section =>
+    `<section><h3>${esc(section.title)}</h3><p>${esc(section.lines.join('\n').trim())}</p></section>`
+  ).join('') : '<p>A fonte não informou a descrição desta vaga.</p>') +
+    (missing?.length ? `<section><h3>A desenvolver</h3><p>${missing.map(esc).join(', ')}</p></section>` : '');
+  $('jobDetailsActions').innerHTML = `
+    ${onSave ? `<button type="button" id="saveJobFromDetails" ${saved ? 'disabled' : ''}>${saved ? 'Já salva' : 'Revisar e salvar'}</button>` : ''}
+    ${url ? `<a class="button secondary" href="${esc(url)}" target="_blank" rel="noopener noreferrer">Abrir candidatura ↗</a>` : ''}
+  `;
+  if (onSave) $('saveJobFromDetails').onclick = () => { dialog.close(); onSave(); };
+  $('jobDetailsBody').scrollTop = 0;
+  dialog.showModal();
+}
+
+$('closeJobDetails').onclick = () => $('jobDetailsDialog').close();
 
 function renderDiscovery() {
   $('view').innerHTML = `<div class="hero">
@@ -144,7 +198,7 @@ function renderDiscoveryResults(result, goToPage) {
     if (!url) return '';
     const saved = jobs.some(item => item.url === job.url);
     return `<article class="job">
-      <div class="job-top"><div><h3>${esc(job.title)}</h3><p>${esc(job.company)} · ${esc(job.location || 'Local não informado')}</p></div>
+      <div class="job-top"><div><h3><button type="button" class="job-title-button" data-discover-details="${index}">${esc(job.title)}</button></h3><p>${esc(job.company)} · ${esc(job.location || 'Local não informado')}</p></div>
       <span class="badge">${esc(job.source)}</span></div>
       ${job.work_model || job.remote ? `<span class="badge">${esc(workModelLabels[job.work_model] || 'Remoto')}</span>` : ''}
       ${job.match_scope === 'title' ? '<span class="badge">Termos no título</span>' : ''}
@@ -152,7 +206,6 @@ function renderDiscoveryResults(result, goToPage) {
       ${job.match_scope === 'provider' ? '<span class="badge">Sugestão da fonte</span>' : ''}
       ${Number.isFinite(job.distance_km) ? `<span class="badge">≈ ${job.distance_km.toLocaleString('pt-BR')} km</span>` : ''}
       ${job.unconfirmed ? '<span class="badge">Abertura ainda não reconfirmada</span>' : ''}
-      <details><summary>Ver detalhes</summary><p class="job-desc">${esc(job.description || 'A fonte não informou a descrição desta vaga.')}</p></details>
       <div class="job-actions">
         <a class="button secondary small" href="${esc(url)}" target="_blank" rel="noopener noreferrer">Candidatar-se no site da vaga ↗</a>
         <button class="small" type="button" data-discover-save="${index}" data-url="${esc(job.url)}" ${saved ? 'disabled' : ''}>${saved ? 'Já salva' : 'Revisar e salvar'}</button>
@@ -169,15 +222,24 @@ function renderDiscoveryResults(result, goToPage) {
     </div></section>`;
   if ($('discoverPrevious')) $('discoverPrevious').onclick = event => goToPage(page - 1, event.currentTarget);
   if ($('discoverNext')) $('discoverNext').onclick = event => goToPage(page + 1, event.currentTarget);
-  $('discoverResults').querySelectorAll('[data-discover-save]').forEach(button => {
+  const saveDiscovery = job => openJob({
+    ...job, work_model: workModelLabels[job.work_model] || (job.remote ? 'Remoto' : ''),
+  });
+  $('discoverResults').querySelectorAll('[data-discover-details]').forEach(button => {
     button.onclick = () => {
-      const job = found[Number(button.dataset.discoverSave)];
-      openJob({...job, work_model: workModelLabels[job.work_model] || (job.remote ? 'Remoto' : '')});
+      const job = found[Number(button.dataset.discoverDetails)];
+      openJobDetails(job, {
+        onSave: () => saveDiscovery(job),
+        saved: jobs.some(item => item.url === job.url),
+      });
     };
+  });
+  $('discoverResults').querySelectorAll('[data-discover-save]').forEach(button => {
+    button.onclick = () => saveDiscovery(found[Number(button.dataset.discoverSave)]);
   });
 }
 function renderJobs(){ $('view').innerHTML=`<div class="section-head"><div><h2>Um lugar para cada oportunidade</h2><p>Salve, compare e acompanhe cada etapa.</p></div><button id="newJob">＋ Nova vaga</button></div><div class="toolbar"><input id="jobSearch" placeholder="Buscar por título ou empresa" aria-label="Buscar vagas"><select id="stageFilter" aria-label="Filtrar por etapa"><option value="">Todas as etapas</option>${Object.entries(stages).map(([v,l])=>`<option value="${v}">${l}</option>`).join('')}</select></div><div id="jobList"></div>`;const filter=()=>{const q=$('jobSearch').value.toLowerCase();const stage=$('stageFilter').value;const filtered=jobs.filter(j=>(!stage||j.status===stage)&&`${j.title} ${j.company}`.toLowerCase().includes(q));$('jobList').innerHTML=filtered.map(jobCard).join('')||empty('Nenhuma vaga por aqui',jobs.length?'Tente outro termo ou etapa.':'Adicione uma vaga manualmente ou use a extensão de captura.');bindJobActions()};$('jobSearch').oninput=filter;$('stageFilter').onchange=filter;$('newJob').onclick=()=>openJob();filter()}
-function bindJobActions(){document.querySelectorAll('[data-edit]').forEach(b=>b.onclick=()=>openJob(jobs.find(j=>j.id===b.dataset.edit)));document.querySelectorAll('[data-delete]').forEach(b=>b.onclick=()=>{if(confirm('Excluir esta vaga da sua conta?'))busy(b,async()=>{await api(`/api/jobs/${b.dataset.delete}`,{method:'DELETE'});await reload();toast('Vaga excluída.')})});document.querySelectorAll('[data-stage]').forEach(s=>s.onchange=()=>busy(null,async()=>{await api(`/api/jobs/${s.dataset.stage}`,{method:'PATCH',body:JSON.stringify({status:s.value})});await reload();toast('Etapa atualizada.')}));document.querySelectorAll('[data-analyze]').forEach(b=>b.onclick=()=>busy(b,async()=>{await api(`/api/jobs/${b.dataset.analyze}/analyze`,{method:'POST'});await reload();toast('Análise local atualizada.')}))}
+function bindJobActions(){document.querySelectorAll('[data-job-details]').forEach(button=>{button.onclick=()=>{const job=jobs.find(item=>item.id===button.dataset.jobDetails);if(job)openJobDetails(job)}});document.querySelectorAll('[data-edit]').forEach(b=>b.onclick=()=>openJob(jobs.find(j=>j.id===b.dataset.edit)));document.querySelectorAll('[data-delete]').forEach(b=>b.onclick=()=>{if(confirm('Excluir esta vaga da sua conta?'))busy(b,async()=>{await api(`/api/jobs/${b.dataset.delete}`,{method:'DELETE'});await reload();toast('Vaga excluída.')})});document.querySelectorAll('[data-stage]').forEach(s=>s.onchange=()=>busy(null,async()=>{await api(`/api/jobs/${s.dataset.stage}`,{method:'PATCH',body:JSON.stringify({status:s.value})});await reload();toast('Etapa atualizada.')}));document.querySelectorAll('[data-analyze]').forEach(b=>b.onclick=()=>busy(b,async()=>{await api(`/api/jobs/${b.dataset.analyze}/analyze`,{method:'POST'});await reload();toast('Análise local atualizada.')}))}
 function openJob(j){$('jobForm').reset();for(const name of ['id','title','company','location','work_model','url','description'])$('jobForm').elements.namedItem(name).value=j?.[name]||'';$('jobDialogTitle').textContent=j?.id?'Editar vaga':'Nova vaga';$('jobDialog').showModal()}
 function profilePhoto(value) {
   return typeof value === 'string' && value.length <= 50000 &&
