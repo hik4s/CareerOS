@@ -1,13 +1,17 @@
 # Busca de vagas no CareerOS
 
-Em **Buscar vagas**, use palavras-chave, localização e o filtro de remoto.
+Em **Buscar vagas**, use palavras-chave, localização, modalidade e nível.
+Para remoto no Brasil, combine a modalidade **Remoto** com **Brasil** na
+localização. Vagas remotas sem região informada ficam disponíveis sem esse
+filtro. Modalidade e nível dependem dos dados publicados pela fonte.
 Os resultados aparecem em uma lista paginada. Use **Ver detalhes** para ler
 a descrição e **Revisar e salvar** para adicionar a oportunidade a **Minhas vagas**.
 O link de candidatura abre a página da vaga no site de origem.
 
 ## Cobertura
 
-- Greenhouse de Grupo QuintoAndar, Brex, Stone, Wellhub e VTEX.
+- Greenhouse de Grupo QuintoAndar, Brex, Stone, Wellhub, VTEX, SumUp,
+  Wildlife Studios e Ebury.
 - Primeira página do feed público Arbeitnow, com foco internacional.
 - Até 30 anúncios por coleta do sitemap do OnJob.io. O CareerOS extrai os
   dados estruturados da página de cada anúncio e mantém seu link de origem.
@@ -54,8 +58,16 @@ CIEE, Nube e SINE, ainda não há um feed de busca confirmado para o CareerOS.
 ## Implementação
 
 A rota autenticada `GET /api/discovery/jobs` consulta os feeds em paralelo.
-A busca ignora caixa e acentuação e consulta cargo, empresa, palavras-chave
-e descrição. As vagas são deduplicadas pelo URL e paginadas em grupos de 20.
+A busca ignora caixa e acentuação, reconhece termos como **estágio/intern**
+e **dados/data**, e prioriza resultados com os termos no título. A empresa
+tem prioridade sobre palavras encontradas apenas na descrição. Vagas com
+prazo informado deixam a busca após o vencimento. Quando uma fonte falha,
+vagas mantidas no catálogo recebem a indicação de abertura não reconfirmada.
+
+URLs que diferem apenas por rastreamento são agrupados. Anúncios com título,
+empresa, localização e descrição substancial idênticos também são agrupados.
+Os resultados são paginados em grupos de 20. **Atualização das fontes** mostra
+quantas vagas únicas cada fonte acrescentou à busca atual.
 A interface informa quando uma fonte está temporariamente indisponível.
 
 Enquanto o servidor está ativo, os feeds são atualizados a cada cinco

@@ -36,7 +36,7 @@ def test_discovery_filters_deduplicates_and_reports_outage(monkeypatch):
         result = response.json()
         assert result['total'] == 1
         assert result['jobs'][0]['url'] == 'https://example.com/jobs/1'
-        assert {'name': 'Brex', 'available': False} in result['sources']
+        assert {'name': 'Brex', 'available': False, 'unique_matches': 0} in result['sources']
         assert result['portals'] == []
     finally:
         app.dependency_overrides.pop(require_user, None)
@@ -76,6 +76,64 @@ def test_search_matches_description_and_paginates(monkeypatch):
         assert result['total'] == 21
         assert result['page'] == 2
         assert [job['title'] for job in result['jobs']] == ['Vaga 20']
+    finally:
+        app.dependency_overrides.pop(require_user, None)
+
+
+def test_search_ranks_intern_title_before_description_and_filters_remote_brazil(monkeypatch):
+    def posting(title, location, slug, description='', remote=False):
+        return discovery.normalize({
+            'title': title, 'location': location, 'url': f'https://example.com/jobs/{slug}',
+            'description': description, 'remote': remote,
+        }, 'Fonte', '')
+
+    rows = [
+        posting('Senior Data Engineer', 'São Paulo', 'senior', 'Programa de estágio em dados'),
+        posting('Data Intern', 'São Paulo', 'intern'),
+        posting('Junior Python Developer', 'Remote, United States', 'us', remote=True),
+        posting('Junior Python Developer', 'São Paulo', 'br', remote=True),
+        posting('Junior Python Developer', 'Remote', 'unknown', remote=True),
+        posting('Junior Python Developer', 'Worldwide', 'world', remote=True),
+        posting('Junior Python Developer', 'Latin America except Brazil', 'excluded', remote=True),
+    ]
+
+    async def feed(key):
+        return (rows if key == 'arbeitnow' else []), True
+
+    monkeypatch.setattr(discovery, 'get_feed', feed)
+    app.dependency_overrides[require_user] = lambda: User('owner', None, 'token')
+    try:
+        with TestClient(app) as client:
+            result = client.get('/api/discovery/jobs', params={
+                'q': 'estágio em dados', 'location': 'São Paulo',
+            }).json()
+            assert result['jobs'][0]['title'] == 'Data Intern'
+            result = client.get('/api/discovery/jobs', params={
+                'q': 'python', 'location': 'Brasil', 'work_model': 'remote', 'level': 'junior',
+            }).json()
+            assert {job['url'].rsplit('/', 1)[-1] for job in result['jobs']} == {'br', 'world'}
+    finally:
+        app.dependency_overrides.pop(require_user, None)
+
+
+def test_search_collapses_tracking_links_and_hides_expired_postings(monkeypatch):
+    rows = [
+        discovery.normalize({'title': 'Analista', 'url': url, 'valid_through': expiry}, 'Fonte', '')
+        for url, expiry in (
+            ('https://example.com/job/1?utm_source=portal', ''),
+            ('https://example.com/job/1', ''),
+            ('https://example.com/job/2', '2000-01-01'),
+        )
+    ]
+
+    async def feed(key):
+        return (rows if key == 'arbeitnow' else []), True
+
+    monkeypatch.setattr(discovery, 'get_feed', feed)
+    app.dependency_overrides[require_user] = lambda: User('owner', None, 'token')
+    try:
+        with TestClient(app) as client:
+            assert client.get('/api/discovery/jobs?q=analista').json()['total'] == 1
     finally:
         app.dependency_overrides.pop(require_user, None)
 

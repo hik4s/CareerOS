@@ -18,6 +18,8 @@ function setTab(){const next=location.hash.slice(1);tab=Object.hasOwn(titles,nex
 function render(){if(!session)return;$('pageTitle').textContent=titles[tab];document.querySelectorAll('[data-tab]').forEach(a=>a.classList.toggle('active',a.dataset.tab===tab));({overview:renderOverview,jobs:renderJobs,discover:renderDiscovery,profile:renderProfile,resumes:renderResumes,ai:renderAI,capture:renderCapture,data:renderData})[tab]()}
 function renderOverview(){const active=jobs.filter(j=>!['archived','rejected'].includes(j.status));const first=profile.full_name?.split(' ')[0];$('view').innerHTML=`<div class="hero"><span class="eyebrow">UM PASSO DE CADA VEZ</span><h2>${first?`Olá, ${esc(first)}. `:''}Sua próxima oportunidade<br>merece um bom plano.</h2><p>Acompanhe suas candidaturas e prepare materiais com base no que você realmente sabe e já construiu.</p><a class="button" href="#jobs">Explorar minhas vagas <span>→</span></a></div><div class="metrics">${[[jobs.length,'Vagas salvas','Seu repertório de oportunidades','▣'],[jobs.filter(j=>j.status==='applied').length,'Candidaturas enviadas','Etapa marcada por você','↗'],[jobs.filter(j=>j.status==='interview').length,'Em entrevista','Conversas em andamento','◎'],[resumes.length,'Currículos','Arquivos na sua conta','▤']].map(([n,l,d,i])=>`<div class="metric"><span class="metric-icon">${i}</span><span class="metric-label">${l}</span><strong>${n}</strong><small>${d}</small></div>`).join('')}</div><div class="grid-two"><div class="card"><div class="section-head"><div><h2>No seu radar</h2><p>Suas oportunidades em andamento.</p></div><a class="inline-link" href="#jobs">Ver todas →</a></div>${active.length?active.slice(0,3).map(j=>`<div class="file-row"><div><h3>${esc(j.title)}</h3><small>${esc(j.company)} · ${stages[j.status]||esc(j.status)}</small></div><span class="badge">${j.fit_score==null?'Sem análise':`${esc(j.fit_score)}% de aderência`}</span></div>`).join(''):empty('Seu radar está pronto','Salve sua primeira vaga para começar a acompanhar as possibilidades.')}</div><div class="card"><div class="section-head"><h2>Construa sua base</h2></div><div class="steps"><div class="step"><span class="step-number">01</span><div><a href="#profile">Dê contexto ao seu perfil →</a><p>Habilidades, projetos e experiências reais.</p></div></div><div class="step"><span class="step-number">02</span><div><a href="#resumes">Organize seus currículos →</a><p>Seus arquivos sempre à mão.</p></div></div><div class="step"><span class="step-number">03</span><div><a href="#ai">Prepare o próximo passo →</a><p>Revise seus materiais com assistência.</p></div></div></div></div></div>`}
 function jobCard(j){const a=j.analysis||{};const url=safeURL(j.url);return `<article class="job"><div class="job-top"><div><h3>${esc(j.title)}</h3><p>${esc(j.company)}${j.location?' · '+esc(j.location):''}${j.work_model?' · '+esc(j.work_model):''}</p></div><span class="score">${j.fit_score==null?'Sem análise':`${esc(j.fit_score)}% aderência`}</span></div><div>${(a.matched_skills||[]).map(s=>`<span class="badge">${esc(s)}</span>`).join('')}</div>${(a.blockers||[]).map(s=>`<p>${esc(s)}</p>`).join('')}<details><summary>Descrição e análise</summary><p class="job-desc">${esc(j.description)}</p>${a.missing_skills?.length?`<p>A desenvolver: ${a.missing_skills.map(esc).join(', ')}</p>`:''}<p class="fine">Aderência é uma comparação local de palavras e perfil. Não prevê seleção ou contratação.</p></details><div class="job-actions"><select aria-label="Etapa de ${esc(j.title)}" data-stage="${esc(j.id)}">${Object.entries(stages).map(([v,l])=>`<option value="${v}" ${j.status===v?'selected':''}>${l}</option>`).join('')}</select><button class="small secondary" data-analyze="${esc(j.id)}">Analisar perfil</button><button class="small secondary" data-edit="${esc(j.id)}">Editar</button>${url?`<a class="button secondary small" href="${esc(url)}" target="_blank" rel="noopener noreferrer">Abrir ↗</a>`:''}<button class="small danger" data-delete="${esc(j.id)}">Excluir</button></div></article>`}
+const workModelLabels = {remote: 'Remoto', hybrid: 'Híbrido', onsite: 'Presencial'};
+
 function renderDiscovery() {
   $('view').innerHTML = `<div class="hero">
     <span class="eyebrow">EXPLORE OPORTUNIDADES</span><h2>Encontre sua próxima vaga</h2>
@@ -26,7 +28,8 @@ function renderDiscovery() {
   <div class="card"><form id="discoverForm" class="discover-form">
     <label>Cargo ou palavra-chave<input name="q" maxlength="120" placeholder="Ex.: estágio, Python, design"></label>
     <label>Cidade, região ou país<input name="location" maxlength="100" placeholder="Ex.: São Paulo"></label>
-    <label class="discover-check"><input type="checkbox" name="remote"> Somente vagas remotas</label>
+    <label>Modalidade<select name="work_model"><option value="">Todas</option><option value="remote">Remoto</option><option value="hybrid">Híbrido</option><option value="onsite">Presencial</option></select></label>
+    <label>Nível<select name="level"><option value="">Todos</option><option value="intern">Estágio ou aprendizagem</option><option value="trainee">Trainee</option><option value="junior">Júnior</option><option value="mid">Pleno</option><option value="senior">Sênior</option></select></label>
     <button type="submit">Buscar vagas</button>
   </form></div>
   <div class="card"><form id="discoverImport" class="discover-form">
@@ -45,11 +48,13 @@ function renderDiscovery() {
   const draft = state.draft ?? {};
   form.elements.q.value = draft.q ?? '';
   form.elements.location.value = draft.location ?? '';
-  form.elements.remote.checked = draft.remote === 'true';
+  form.elements.work_model.value = draft.work_model ?? (draft.remote === 'true' ? 'remote' : '');
+  form.elements.level.value = draft.level ?? '';
   const filters = () => ({
     q: form.elements.q.value.trim(),
     location: form.elements.location.value.trim(),
-    remote: String(form.elements.remote.checked),
+    work_model: form.elements.work_model.value,
+    level: form.elements.level.value,
   });
   form.oninput = () => {
     state.draft = filters();
@@ -64,7 +69,7 @@ function renderDiscovery() {
     busy(event.submitter, async () => {
       const job = await api('/api/discovery/import?' + query, {}, owner);
       if (importForm.isConnected && session?.user.id === owner) {
-        openJob({...job, work_model: job.remote ? 'Remoto' : ''});
+        openJob({...job, work_model: workModelLabels[job.work_model] || (job.remote ? 'Remoto' : '')});
       }
     });
   };
@@ -125,7 +130,8 @@ function renderDiscoveryResults(result, goToPage) {
     const updated = source.updated_at && new Date(source.updated_at).toLocaleString('pt-BR');
     const status = source.refreshing ? 'atualizando' : source.partial ? 'atualização parcial' :
       source.available ? 'disponível' : updated ? 'exibindo última coleta' : 'temporariamente indisponível';
-    return `<li>${esc(source.name)} · ${status}${updated ? ' · Atualizada em ' + esc(updated) : ''}</li>`;
+    const count = Number.isInteger(source.unique_matches) ? ' · ' + source.unique_matches + ' vagas nos filtros' : '';
+    return `<li>${esc(source.name)} · ${status}${count}${updated ? ' · Atualizada em ' + esc(updated) : ''}</li>`;
   }).join('');
   const cards = found.map((job, index) => {
     const url = safeURL(job.url);
@@ -134,7 +140,8 @@ function renderDiscoveryResults(result, goToPage) {
     return `<article class="job">
       <div class="job-top"><div><h3>${esc(job.title)}</h3><p>${esc(job.company)} · ${esc(job.location || 'Local não informado')}</p></div>
       <span class="badge">${esc(job.source)}</span></div>
-      ${job.remote ? '<span class="badge">Remoto</span>' : ''}
+      ${job.work_model || job.remote ? `<span class="badge">${esc(workModelLabels[job.work_model] || 'Remoto')}</span>` : ''}
+      ${job.unconfirmed ? '<span class="badge">Abertura ainda não reconfirmada</span>' : ''}
       <details><summary>Ver detalhes</summary><p class="job-desc">${esc(job.description || 'A fonte não informou a descrição desta vaga.')}</p></details>
       <div class="job-actions">
         <a class="button secondary small" href="${esc(url)}" target="_blank" rel="noopener noreferrer">Candidatar-se no site da vaga ↗</a>
@@ -155,7 +162,7 @@ function renderDiscoveryResults(result, goToPage) {
   $('discoverResults').querySelectorAll('[data-discover-save]').forEach(button => {
     button.onclick = () => {
       const job = found[Number(button.dataset.discoverSave)];
-      openJob({...job, work_model: job.remote ? 'Remoto' : ''});
+      openJob({...job, work_model: workModelLabels[job.work_model] || (job.remote ? 'Remoto' : '')});
     };
   });
 }
