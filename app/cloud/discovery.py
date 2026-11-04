@@ -144,7 +144,8 @@ async def fetch_content(method, url, *, accept, authorization='', client=None, *
         headers['Authorization'] = authorization
     async with asyncio.timeout(10), AsyncExitStack() as stack:
         if client is None:
-            client = await stack.enter_async_context(httpx.AsyncClient(timeout=8, follow_redirects=False))
+            connection = await asyncio.to_thread(httpx.AsyncClient, timeout=8, follow_redirects=False)
+            client = await stack.enter_async_context(connection)
         async with client.stream(method, url, headers=headers, **options) as response:
             response.raise_for_status()
             content = bytearray()
@@ -261,7 +262,8 @@ async def fetch_career_job(url, source, client=None):
 
 
 async def career_jobs(source, sitemap_url, prefix, previous=()):
-    async with asyncio.timeout(25), httpx.AsyncClient(timeout=8, follow_redirects=False) as client:
+    connection = await asyncio.to_thread(httpx.AsyncClient, timeout=8, follow_redirects=False)
+    async with asyncio.timeout(25), connection as client:
         content = await fetch_content('GET', sitemap_url, accept='application/xml', client=client)
         if b'<!DOCTYPE' in content.upper():
             raise ValueError('Unexpected sitemap declaration')
