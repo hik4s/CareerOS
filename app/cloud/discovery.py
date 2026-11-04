@@ -134,8 +134,7 @@ def matches_location(job, where, model):
     return not where or where in re.sub(r'\bbrazil\b', 'brasil', place)
 
 
-def relevance(job, terms, *, title_only=False, provider_matched=False):
-    title, company = folded(job['title']), folded(job['company'])
+def relevance(job, title, company, terms, *, title_only=False, provider_matched=False):
     score = 0
     scope = 'title' if terms else ''
     for term in terms:
@@ -155,6 +154,21 @@ def relevance(job, terms, *, title_only=False, provider_matched=False):
         else:
             return None
     return score, scope
+
+
+def best_match(job, alternatives, *, title_only, provider_matched):
+    title, company = folded(job['title']), folded(job['company'])
+    best = None
+    for terms in alternatives:
+        match = relevance(job, title, company, terms, title_only=title_only,
+                          provider_matched=provider_matched)
+        if match is None:
+            continue
+        score, scope = match
+        score /= max(1, len(terms))
+        if best is None or score > best[0]:
+            best = score, scope
+    return best
 
 
 def duplicate_keys(job):
@@ -672,7 +686,7 @@ async def discover_jobs(q: str = Query('', max_length=120),
         names.append('Jooble')
         requests.append(jooble_feed(jooble_key, q.strip(), location.strip(), requested_model == 'remote'))
     feeds = await asyncio.gather(*requests)
-    terms = search_terms(q)
+    alternatives = [terms for group in q.split(',') if (terms := search_terms(group))] or [[]]
     where = folded(location.strip())
     if where in ('br', 'brazil'):
         where = 'brasil'
@@ -698,7 +712,8 @@ async def discover_jobs(q: str = Query('', max_length=120),
                 continue
             if not radius_km and not matches_location(job, where, model) and (name != 'Jooble' or where == 'brasil'):
                 continue
-            match = relevance(job, terms, title_only=title_only, provider_matched=name == 'Jooble' and not radius_km)
+            match = best_match(job, alternatives, title_only=title_only,
+                               provider_matched=name == 'Jooble' and not radius_km)
             if match is not None:
                 distance = nearest_distance(origin, folded(job['location'])) if origin is not None else None
                 if origin is not None and (distance is None or distance > radius_km):

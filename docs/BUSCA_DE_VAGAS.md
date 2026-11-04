@@ -8,6 +8,8 @@ Marque **Buscar palavras-chave somente no título** para exigir que todos
 os termos relevantes apareçam no cargo, incluindo equivalentes como
 estágio e intern. Na busca ampla, os resultados indicam se os termos
 estão no título, nos detalhes ou se a vaga foi sugerida pela fonte.
+Use vírgulas para buscar alternativas. Por exemplo, **estágio Python,
+estágio em TI** busca vagas que correspondam a pelo menos um desses grupos.
 
 Para incluir cidades próximas, escolha um raio em **Distância da cidade**
 e informe uma cidade brasileira. A distância aproximada é em linha reta
