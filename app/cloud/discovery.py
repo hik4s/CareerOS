@@ -31,6 +31,8 @@ FEEDS = {
         ('quintoandar', 'Grupo QuintoAndar'), ('brex', 'Brex'), ('stone', 'Stone'),
         ('gympass', 'Wellhub'), ('vtex', 'VTEX'),
         ('sumup', 'SumUp'), ('wildlifestudios', 'Wildlife Studios'), ('ebury', 'Ebury'),
+        ('rdstation', 'RD Station'), ('ilia', 'ília'), ('bancopan', 'Banco PAN'),
+        ('zupinnovation', 'Zup Innovation'),
     )
 }
 FEEDS['arbeitnow'] = ('Arbeitnow', 'https://www.arbeitnow.com/api/job-board-api', 'data', '')
@@ -67,6 +69,7 @@ def description_text(value):
     if not isinstance(value, str):
         return ''
     markup = html.unescape(value)
+    markup = re.sub(r'<li\b[^>]*>', '\n• ', markup, flags=re.I)
     markup = re.sub(r'<(?:br\b[^>]*|/(?:p|div|li|h[1-6]))\s*>', '\n', markup, flags=re.I)
     plain = html.unescape(re.sub(r'<[^>]*>', ' ', markup))
     lines = (' '.join(line.split()) for line in plain.splitlines())

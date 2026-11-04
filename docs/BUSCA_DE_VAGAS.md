@@ -19,14 +19,18 @@ fora. A ordenação mantém a relevância em primeiro lugar e usa a distância
 para desempatar. O catálogo local é um recorte brasileiro de
 [`cities15000` do GeoNames](https://www.geonames.org/export/), com nomes
 normalizados, UF e coordenadas arredondadas, sob licença CC BY 4.0.
-Os resultados aparecem em uma lista paginada. Use **Ver detalhes** para ler
-a descrição e **Revisar e salvar** para adicionar a oportunidade a **Minhas vagas**.
+Os resultados aparecem em uma lista paginada. Clique no título para ler
+a descrição e use **Revisar e salvar** para adicionar a oportunidade a **Minhas vagas**.
+Na janela da vaga, escolha **Português (Brasil)** ou **Original**. A tradução
+usa os modelos do navegador em dispositivos compatíveis. O navegador pode
+precisar baixar os modelos no primeiro uso e oferece português genérico quando
+a variante brasileira não está disponível. [Documentação do tradutor](https://developer.chrome.com/docs/ai/translator-api).
 O link de candidatura abre a página da vaga no site de origem.
 
 ## Cobertura
 
 - Greenhouse de Grupo QuintoAndar, Brex, Stone, Wellhub, VTEX, SumUp,
-  Wildlife Studios e Ebury.
+  Wildlife Studios, Ebury, RD Station, ília, Banco PAN e Zup Innovation.
 - Primeira página do feed público Arbeitnow, com foco internacional.
 - Até 30 anúncios por coleta do sitemap do OnJob.io. O CareerOS extrai os
   dados estruturados da página de cada anúncio e mantém seu link de origem.
