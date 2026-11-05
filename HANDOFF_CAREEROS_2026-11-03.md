@@ -644,3 +644,23 @@ usuário, incluindo LinkedIn, Indeed e Gupy, para salvar em **Minhas vagas**.
    backup SQLite no Windows. Preservar o plano gratuito e os dados do
    usuário. A suíte cloud mais recente passou com 84 testes. A suíte
    completa não foi revalidada no último deploy.
+
+## 23. Continuação de interface em 05/11/2026
+
+Nesta continuação, **Minhas vagas** ganhou alternância entre lista e quadro
+de etapas, pesquisa por título ou empresa, filtros preservados na aba,
+contagem de resultados e atualização manual. O quadro permite mover vagas
+por arraste ou pelo seletor de etapa. A mudança aparece imediatamente,
+aguarda a gravação na conta e volta ao estado anterior se houver falha.
+
+A visão geral usa os indicadores como atalhos para listas filtradas e abre
+os detalhes de oportunidades recentes. A busca ganhou limpeza de filtros.
+Eventos repetidos de autenticação da mesma conta atualizam a sessão sem
+recarregar todo o painel. Os efeitos visuais respeitam a preferência de
+movimento reduzido.
+
+As verificações locais passaram com 84 testes cloud. No Edge, um cenário
+com dados simulados verificou o quadro, busca sem acentuação, restauração
+de filtros, mudança de etapa e reversão após falha de rede. O fluxo com
+conta real ainda exige homologação. Consultar o GitHub e o Render para
+confirmar a integração e o deploy desta continuação.

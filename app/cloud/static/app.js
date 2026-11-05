@@ -12,11 +12,11 @@ function empty(title,text){return `<div class="empty"><div class="empty-icon">�
 function safeURL(url){try{const u=new URL(url);return ['https:','http:'].includes(u.protocol)?u.href:''}catch{return ''}}
 function date(value){return value?new Date(value).toLocaleDateString('pt-BR'):''}
 async function reload(){const generation=++loadGeneration;$('loading').classList.remove('hidden');try{const data=await Promise.all([api('/api/profile'),api('/api/jobs'),api('/api/resumes'),api('/api/ai/history')]);if(generation!==loadGeneration||!session)return;[profile,jobs,resumes,history]=data;render()}catch(e){if(generation===loadGeneration)toast(e.message,true)}finally{if(generation===loadGeneration)$('loading').classList.add('hidden')}}
-function clearAccount(){loadGeneration++;apiKey='';profile={};jobs=[];resumes=[];history=[];estimate=null;estimatePayload=null;aiResult='';aiDraft={provider:'heuristic',model:'',task:'evaluate',job_id:'',resume_id:'',instruction:'',previous_text:'',max_output_tokens:512,input_price_per_million:'',output_price_per_million:''};$('view').replaceChildren();$('accountName').textContent='Minha conta';$('accountEmail').textContent='';$('avatar').textContent='C';$('jobForm').reset();$('jobDialog').close();$('jobDetailsDialog').close()}
-function showSession(next){if(session?.user?.id!==next?.user?.id)clearAccount();session=next;const path=next?'/':'/auth';if(location.pathname!==path)window.history.replaceState(null,'',path+location.search+location.hash);$('gate').classList.toggle('hidden',!!next);$('shell').classList.toggle('hidden',!next);if(!next){clearAccount();return}const user=next.user;$('accountName').textContent=user.user_metadata?.full_name||user.email?.split('@')[0]||'Minha conta';$('accountEmail').textContent=user.email||'';$('avatar').textContent=($('accountName').textContent[0]||'C').toUpperCase();reload()}
+function clearAccount(){loadGeneration++;pendingJobUpdates.clear();jobFilters={query:'',stage:'',mode:'list'};apiKey='';profile={};jobs=[];resumes=[];history=[];estimate=null;estimatePayload=null;aiResult='';aiDraft={provider:'heuristic',model:'',task:'evaluate',job_id:'',resume_id:'',instruction:'',previous_text:'',max_output_tokens:512,input_price_per_million:'',output_price_per_million:''};$('view').replaceChildren();$('accountName').textContent='Minha conta';$('accountEmail').textContent='';$('avatar').textContent='C';$('jobForm').reset();$('jobDialog').close();$('jobDetailsDialog').close()}
+function showSession(next){if(next&&session?.user.id===next.user.id){session=next;return}if(session?.user?.id!==next?.user?.id)clearAccount();session=next;const path=next?'/':'/auth';if(location.pathname!==path)window.history.replaceState(null,'',path+location.search+location.hash);$('gate').classList.toggle('hidden',!!next);$('shell').classList.toggle('hidden',!next);if(!next){clearAccount();return}const user=next.user;$('accountName').textContent=user.user_metadata?.full_name||user.email?.split('@')[0]||'Minha conta';$('accountEmail').textContent=user.email||'';$('avatar').textContent=($('accountName').textContent[0]||'C').toUpperCase();reload()}
 function setTab(){const next=location.hash.slice(1);tab=Object.hasOwn(titles,next)?next:'overview';render()}
 function render(){if(!session)return;$('pageTitle').textContent=titles[tab];document.querySelectorAll('[data-tab]').forEach(a=>a.classList.toggle('active',a.dataset.tab===tab));({overview:renderOverview,jobs:renderJobs,discover:renderDiscovery,profile:renderProfile,resumes:renderResumes,ai:renderAI,capture:renderCapture,data:renderData})[tab]()}
-function renderOverview(){const active=jobs.filter(j=>!['archived','rejected'].includes(j.status));const first=profile.full_name?.split(' ')[0];$('view').innerHTML=`<div class="hero"><span class="eyebrow">UM PASSO DE CADA VEZ</span><h2>${first?`Olá, ${esc(first)}. `:''}Sua próxima oportunidade<br>merece um bom plano.</h2><p>Acompanhe suas candidaturas e prepare materiais com base no que você realmente sabe e já construiu.</p><a class="button" href="#jobs">Explorar minhas vagas <span>→</span></a></div><div class="metrics">${[[jobs.length,'Vagas salvas','Seu repertório de oportunidades','▣'],[jobs.filter(j=>j.status==='applied').length,'Candidaturas enviadas','Etapa marcada por você','↗'],[jobs.filter(j=>j.status==='interview').length,'Em entrevista','Conversas em andamento','◎'],[resumes.length,'Currículos','Arquivos na sua conta','▤']].map(([n,l,d,i])=>`<div class="metric"><span class="metric-icon">${i}</span><span class="metric-label">${l}</span><strong>${n}</strong><small>${d}</small></div>`).join('')}</div><div class="grid-two"><div class="card"><div class="section-head"><div><h2>No seu radar</h2><p>Suas oportunidades em andamento.</p></div><a class="inline-link" href="#jobs">Ver todas →</a></div>${active.length?active.slice(0,3).map(j=>`<div class="file-row"><div><h3>${esc(j.title)}</h3><small>${esc(j.company)} · ${stages[j.status]||esc(j.status)}</small></div><span class="badge">${j.fit_score==null?'Sem análise':`${esc(j.fit_score)}% de aderência`}</span></div>`).join(''):empty('Seu radar está pronto','Salve sua primeira vaga para começar a acompanhar as possibilidades.')}</div><div class="card"><div class="section-head"><h2>Construa sua base</h2></div><div class="steps"><div class="step"><span class="step-number">01</span><div><a href="#profile">Dê contexto ao seu perfil →</a><p>Habilidades, projetos e experiências reais.</p></div></div><div class="step"><span class="step-number">02</span><div><a href="#resumes">Organize seus currículos →</a><p>Seus arquivos sempre à mão.</p></div></div><div class="step"><span class="step-number">03</span><div><a href="#ai">Prepare o próximo passo →</a><p>Revise seus materiais com assistência.</p></div></div></div></div></div>`}
+function renderOverview(){const active=jobs.filter(j=>!['archived','rejected'].includes(j.status));const first=profile.full_name?.split(' ')[0];$('view').innerHTML=`<div class="hero"><span class="eyebrow">UM PASSO DE CADA VEZ</span><h2>${first?`Olá, ${esc(first)}. `:''}Sua próxima oportunidade<br>merece um bom plano.</h2><p>Acompanhe suas candidaturas e prepare materiais com base no que você realmente sabe e já construiu.</p><a class="button" href="#jobs">Explorar minhas vagas <span>→</span></a></div><div class="metrics">${[[jobs.length,'Vagas salvas','Seu repertório de oportunidades','▣'],[jobs.filter(j=>j.status==='applied').length,'Candidaturas enviadas','Etapa marcada por você','↗'],[jobs.filter(j=>j.status==='interview').length,'Em entrevista','Conversas em andamento','◎'],[resumes.length,'Currículos','Arquivos na sua conta','▤']].map(([n,l,d,i],index)=>`<a class="metric metric-link" href="${index===3?'#resumes':'#jobs'}" data-metric-filter="${['','applied','interview',''][index]}"><span class="metric-icon">${i}</span><span class="metric-label">${l}</span><strong>${n}</strong><small>${d}</small></a>`).join('')}</div><div class="grid-two"><div class="card"><div class="section-head"><div><h2>No seu radar</h2><p>Suas oportunidades em andamento.</p></div><a class="inline-link" href="#jobs">Ver todas →</a></div>${active.length?active.slice(0,3).map(j=>`<div class="file-row"><div><h3><button type="button" class="job-title-button" data-job-details="${esc(j.id)}">${esc(j.title)}</button></h3><small>${esc(j.company)} · ${stages[j.status]||esc(j.status)}</small></div><span class="badge">${j.fit_score==null?'Sem análise':`${esc(j.fit_score)}% de aderência`}</span></div>`).join(''):empty('Seu radar está pronto','Salve sua primeira vaga para começar a acompanhar as possibilidades.')}</div><div class="card"><div class="section-head"><h2>Construa sua base</h2></div><div class="steps"><div class="step"><span class="step-number">01</span><div><a href="#profile">Dê contexto ao seu perfil →</a><p>Habilidades, projetos e experiências reais.</p></div></div><div class="step"><span class="step-number">02</span><div><a href="#resumes">Organize seus currículos →</a><p>Seus arquivos sempre à mão.</p></div></div><div class="step"><span class="step-number">03</span><div><a href="#ai">Prepare o próximo passo →</a><p>Revise seus materiais com assistência.</p></div></div></div></div></div>`;bindJobActions();document.querySelectorAll('[data-metric-filter]').forEach(link=>{link.onclick=()=>{jobFilters={query:'',stage:link.dataset.metricFilter,mode:'list'};rememberJobFilters()}})}
 function jobCard(j){const a=j.analysis||{};const url=safeURL(j.url);return `<article class="job"><div class="job-top"><div><h3><button type="button" class="job-title-button" data-job-details="${esc(j.id)}">${esc(j.title)}</button></h3><p>${esc(j.company)}${j.location?' · '+esc(j.location):''}${j.work_model?' · '+esc(j.work_model):''}</p></div><span class="score">${j.fit_score==null?'Sem análise':`${esc(j.fit_score)}% aderência`}</span></div><div>${(a.matched_skills||[]).map(s=>`<span class="badge">${esc(s)}</span>`).join('')}</div>${(a.blockers||[]).map(s=>`<p>${esc(s)}</p>`).join('')}<div class="job-actions"><select aria-label="Etapa de ${esc(j.title)}" data-stage="${esc(j.id)}">${Object.entries(stages).map(([v,l])=>`<option value="${v}" ${j.status===v?'selected':''}>${l}</option>`).join('')}</select><button class="small secondary" data-analyze="${esc(j.id)}">Analisar perfil</button><button class="small secondary" data-edit="${esc(j.id)}">Editar</button>${url?`<a class="button secondary small" href="${esc(url)}" target="_blank" rel="noopener noreferrer">Abrir ↗</a>`:''}<button class="small danger" data-delete="${esc(j.id)}">Excluir</button></div></article>`}
 const workModelLabels = {remote: 'Remoto', hybrid: 'Híbrido', onsite: 'Presencial'};
 const jobSectionHeadings = [
@@ -227,6 +227,7 @@ function renderDiscovery() {
     <label>Nível<select name="level"><option value="">Todos</option><option value="intern">Estágio ou aprendizagem</option><option value="trainee">Trainee</option><option value="junior">Júnior</option><option value="mid">Pleno</option><option value="senior">Sênior</option></select></label>
     <label class="discover-check"><input type="checkbox" name="title_only"> Buscar palavras-chave somente no título</label>
     <button type="submit">Buscar vagas</button>
+    <button type="button" id="clearDiscoveryFilters" class="secondary">Limpar filtros</button>
   </form></div>
   <div class="card"><form id="discoverImport" class="discover-form">
     <label>Link de uma vaga<input name="url" type="url" maxlength="4096" placeholder="https://…" required></label>
@@ -236,6 +237,11 @@ function renderDiscovery() {
   const form = $('discoverForm');
   const owner = session.user.id;
   const storageKey = 'careeros.discovery.' + owner;
+  $('clearDiscoveryFilters').onclick = () => {
+    try { sessionStorage.removeItem(storageKey); } catch {}
+    renderDiscovery();
+    $('discoverForm').elements.q.focus();
+  };
   let state = {};
   try { state = JSON.parse(sessionStorage.getItem(storageKey)) || {}; } catch {}
   const remember = () => {
@@ -378,8 +384,196 @@ function renderDiscoveryResults(result, goToPage) {
     button.onclick = () => saveDiscovery(found[Number(button.dataset.discoverSave)]);
   });
 }
-function renderJobs(){ $('view').innerHTML=`<div class="section-head"><div><h2>Um lugar para cada oportunidade</h2><p>Salve, compare e acompanhe cada etapa.</p></div><button id="newJob">＋ Nova vaga</button></div><div class="toolbar"><input id="jobSearch" placeholder="Buscar por título ou empresa" aria-label="Buscar vagas"><select id="stageFilter" aria-label="Filtrar por etapa"><option value="">Todas as etapas</option>${Object.entries(stages).map(([v,l])=>`<option value="${v}">${l}</option>`).join('')}</select></div><div id="jobList"></div>`;const filter=()=>{const q=$('jobSearch').value.toLowerCase();const stage=$('stageFilter').value;const filtered=jobs.filter(j=>(!stage||j.status===stage)&&`${j.title} ${j.company}`.toLowerCase().includes(q));$('jobList').innerHTML=filtered.map(jobCard).join('')||empty('Nenhuma vaga por aqui',jobs.length?'Tente outro termo ou etapa.':'Adicione uma vaga manualmente ou use a extensão de captura.');bindJobActions()};$('jobSearch').oninput=filter;$('stageFilter').onchange=filter;$('newJob').onclick=()=>openJob();filter()}
-function bindJobActions(){document.querySelectorAll('[data-job-details]').forEach(button=>{button.onclick=()=>{const job=jobs.find(item=>item.id===button.dataset.jobDetails);if(job)openJobDetails(job)}});document.querySelectorAll('[data-edit]').forEach(b=>b.onclick=()=>openJob(jobs.find(j=>j.id===b.dataset.edit)));document.querySelectorAll('[data-delete]').forEach(b=>b.onclick=()=>{if(confirm('Excluir esta vaga da sua conta?'))busy(b,async()=>{await api(`/api/jobs/${b.dataset.delete}`,{method:'DELETE'});await reload();toast('Vaga excluída.')})});document.querySelectorAll('[data-stage]').forEach(s=>s.onchange=()=>busy(null,async()=>{await api(`/api/jobs/${s.dataset.stage}`,{method:'PATCH',body:JSON.stringify({status:s.value})});await reload();toast('Etapa atualizada.')}));document.querySelectorAll('[data-analyze]').forEach(b=>b.onclick=()=>busy(b,async()=>{await api(`/api/jobs/${b.dataset.analyze}/analyze`,{method:'POST'});await reload();toast('Análise local atualizada.')}))}
+const jobBoardColumns = [
+  {title: 'No radar', stage: 'saved', statuses: ['new', 'saved', 'skip']},
+  {title: 'Preparação', stage: 'review', statuses: ['review', 'ready']},
+  {title: 'Candidaturas', stage: 'applied', statuses: ['applied']},
+  {title: 'Entrevistas', stage: 'interview', statuses: ['interview']},
+  {title: 'Propostas', stage: 'offer', statuses: ['offer']},
+  {title: 'Encerradas', stage: 'rejected', statuses: ['rejected', 'archived']},
+];
+let jobFilters = {query: '', stage: '', mode: 'list'};
+const pendingJobUpdates = new Set();
+
+function jobBoardCard(job) {
+  return `<article class="job-board-card" draggable="${!pendingJobUpdates.has(job.id)}" data-drag-job="${esc(job.id)}">
+    <span class="badge">${esc(stages[job.status] || job.status)}</span>
+    <h3><button type="button" class="job-title-button" data-job-details="${esc(job.id)}">${esc(job.title)}</button></h3>
+    <p>${esc(job.company)}${job.location ? ' · ' + esc(job.location) : ''}</p>
+    <label>Mover para<select data-stage="${esc(job.id)}" aria-label="Etapa de ${esc(job.title)}" ${pendingJobUpdates.has(job.id) ? 'disabled' : ''}>
+      ${Object.entries(stages).map(([value, label]) => `<option value="${value}" ${job.status === value ? 'selected' : ''}>${label}</option>`).join('')}
+    </select></label>
+  </article>`;
+}
+
+function rememberJobFilters() {
+  if (!session) return;
+  try { sessionStorage.setItem('careeros.jobs.' + session.user.id, JSON.stringify(jobFilters)); } catch {}
+}
+
+function renderJobs() {
+  try {
+    const stored = JSON.parse(sessionStorage.getItem('careeros.jobs.' + session.user.id));
+    if (stored && ['list', 'board'].includes(stored.mode)) jobFilters = stored;
+  } catch {}
+  $('view').innerHTML = `<div class="section-head"><div><h2>Seu próximo passo, à vista</h2><p>Organize suas oportunidades e acompanhe cada candidatura.</p></div>
+    <button id="newJob">＋ Nova vaga</button></div>
+    <div class="jobs-workspace-toolbar">
+      <div class="view-switch" role="group" aria-label="Visualização das vagas">
+        <button type="button" data-job-mode="list">Lista</button><button type="button" data-job-mode="board">Quadro de etapas</button>
+      </div>
+      <span id="jobCount" role="status"></span>
+      <button type="button" id="refreshJobs" class="secondary small">Atualizar vagas</button>
+      <a class="button secondary small" href="#discover">Encontrar vagas ↗</a>
+    </div>
+    <div class="toolbar">
+      <input id="jobSearch" placeholder="Buscar por título ou empresa" aria-label="Buscar vagas salvas" value="${esc(jobFilters.query || '')}">
+      <select id="stageFilter" aria-label="Filtrar por etapa"><option value="">Todas as etapas</option>
+        ${Object.entries(stages).map(([value, label]) => `<option value="${value}" ${jobFilters.stage === value ? 'selected' : ''}>${label}</option>`).join('')}
+      </select>
+      <button id="clearJobFilters" type="button" class="secondary small">Limpar filtros</button>
+    </div><div id="jobList"></div>`;
+  $('jobSearch').oninput = () => {
+    jobFilters.query = $('jobSearch').value;
+    rememberJobFilters();
+    renderJobResults();
+  };
+  $('stageFilter').onchange = () => {
+    jobFilters.stage = $('stageFilter').value;
+    rememberJobFilters();
+    renderJobResults();
+  };
+  $('clearJobFilters').onclick = () => {
+    jobFilters = {...jobFilters, query: '', stage: ''};
+    rememberJobFilters();
+    renderJobs();
+    $('jobSearch').focus();
+  };
+  document.querySelectorAll('[data-job-mode]').forEach(button => {
+    button.onclick = () => {
+      jobFilters.mode = button.dataset.jobMode;
+      rememberJobFilters();
+      renderJobResults();
+    };
+  });
+  $('newJob').onclick = () => openJob();
+  $('refreshJobs').onclick = event => busy(event.currentTarget, reload);
+  renderJobResults();
+}
+
+function renderJobResults() {
+  if (tab !== 'jobs' || !$('jobList')) return;
+  const query = (jobFilters.query || '').normalize('NFD').replace(/\p{M}/gu, '').toLowerCase();
+  const filtered = jobs.filter(job => {
+    const text = `${job.title} ${job.company}`.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase();
+    return (!jobFilters.stage || job.status === jobFilters.stage) && text.includes(query);
+  });
+  $('jobCount').textContent = `${filtered.length} de ${jobs.length} oportunidades`;
+  document.querySelectorAll('[data-job-mode]').forEach(button => {
+    button.setAttribute('aria-pressed', String(button.dataset.jobMode === jobFilters.mode));
+  });
+  if (!filtered.length) {
+    $('jobList').innerHTML = empty('Seu radar está pronto para o próximo passo',
+      jobs.length ? 'Ajuste ou limpe os filtros para encontrar suas vagas.' : 'Encontre oportunidades na busca ou adicione uma vaga para começar.');
+  } else if (jobFilters.mode === 'board') {
+    $('jobList').innerHTML = `<p class="fine">Arraste um cartão para mudar a etapa ou use “Mover para”. A mudança fica salva na sua conta.</p>
+      <div class="job-board" aria-label="Quadro de candidaturas">
+      ${jobBoardColumns.map(column => {
+        const items = filtered.filter(job => column.statuses.includes(job.status));
+        return `<section class="job-board-column" data-drop-stage="${column.stage}" aria-label="${column.title}">
+          <div class="job-board-column-head"><h3>${column.title}</h3><span class="badge">${items.length}</span></div>
+          ${items.map(jobBoardCard).join('') || '<p class="job-board-empty">Mova uma vaga para esta etapa.</p>'}
+        </section>`;
+      }).join('')}</div>`;
+  } else {
+    $('jobList').innerHTML = filtered.map(jobCard).join('');
+  }
+  bindJobActions();
+  document.querySelectorAll('[data-drag-job]').forEach(card => {
+    card.ondragstart = event => {
+      if (pendingJobUpdates.has(card.dataset.dragJob)) { event.preventDefault(); return; }
+      event.dataTransfer.setData('text/plain', card.dataset.dragJob);
+      event.dataTransfer.effectAllowed = 'move';
+    };
+  });
+  document.querySelectorAll('[data-drop-stage]').forEach(column => {
+    column.ondragover = event => { event.preventDefault(); column.classList.add('is-drop-target'); };
+    column.ondragleave = event => {
+      if (!column.contains(event.relatedTarget)) column.classList.remove('is-drop-target');
+    };
+    column.ondrop = event => {
+      event.preventDefault();
+      column.classList.remove('is-drop-target');
+      const id = event.dataTransfer.getData('text/plain');
+      const job = jobs.find(item => item.id === id);
+      const group = jobBoardColumns.find(item => item.stage === column.dataset.dropStage);
+      if (job && group && !group.statuses.includes(job.status)) updateJobStage(id, group.stage);
+    };
+  });
+}
+
+async function updateJobStage(id, stage) {
+  const job = jobs.find(item => item.id === id);
+  if (!job || !Object.hasOwn(stages, stage) || pendingJobUpdates.has(id) || job.status === stage) return;
+  const owner = session?.user.id;
+  const previous = job.status;
+  pendingJobUpdates.add(id);
+  job.status = stage;
+  renderJobResults();
+  try {
+    const updated = await api('/api/jobs/' + encodeURIComponent(id), {
+      method: 'PATCH', body: JSON.stringify({status: stage}),
+    }, owner);
+    if (session?.user.id !== owner) return;
+    const index = jobs.findIndex(item => item.id === id);
+    if (index >= 0) jobs[index] = updated;
+    toast('Etapa atualizada para ' + stages[stage] + '.');
+  } catch (error) {
+    if (session?.user.id === owner) {
+      const current = jobs.find(item => item.id === id);
+      if (current) current.status = previous;
+      toast(error.message || 'Não foi possível salvar a etapa. Tente novamente.', true);
+    }
+  } finally {
+    pendingJobUpdates.delete(id);
+    if (session?.user.id === owner) renderJobResults();
+  }
+}
+
+function bindJobActions() {
+  document.querySelectorAll('[data-job-details]').forEach(button => {
+    button.onclick = () => {
+      const job = jobs.find(item => item.id === button.dataset.jobDetails);
+      if (job) openJobDetails(job);
+    };
+  });
+  document.querySelectorAll('[data-edit]').forEach(button => {
+    button.disabled = pendingJobUpdates.has(button.dataset.edit);
+    button.onclick = () => openJob(jobs.find(job => job.id === button.dataset.edit));
+  });
+  document.querySelectorAll('[data-delete]').forEach(button => {
+    button.disabled = pendingJobUpdates.has(button.dataset.delete);
+    button.onclick = () => {
+      if (confirm('Excluir esta vaga da sua conta?')) busy(button, async () => {
+        await api('/api/jobs/' + encodeURIComponent(button.dataset.delete), {method: 'DELETE'});
+        await reload();
+        toast('Vaga excluída.');
+      });
+    };
+  });
+  document.querySelectorAll('[data-stage]').forEach(select => {
+    select.disabled = pendingJobUpdates.has(select.dataset.stage);
+    select.onchange = () => updateJobStage(select.dataset.stage, select.value);
+  });
+  document.querySelectorAll('[data-analyze]').forEach(button => {
+    button.disabled = pendingJobUpdates.has(button.dataset.analyze);
+    button.onclick = () => busy(button, async () => {
+      await api('/api/jobs/' + encodeURIComponent(button.dataset.analyze) + '/analyze', {method: 'POST'});
+      await reload();
+      toast('Análise local atualizada.');
+    });
+  });
+}
 function openJob(j){$('jobForm').reset();for(const name of ['id','title','company','location','work_model','url','description'])$('jobForm').elements.namedItem(name).value=j?.[name]||'';$('jobDialogTitle').textContent=j?.id?'Editar vaga':'Nova vaga';$('jobDialog').showModal()}
 function profilePhoto(value) {
   return typeof value === 'string' && value.length <= 50000 &&
