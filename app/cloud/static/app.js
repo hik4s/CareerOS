@@ -11,8 +11,33 @@ async function busy(button,fn){const original=button?.textContent;if(button){but
 function empty(title,text){return `<div class="empty"><div class="empty-icon">◇</div><h3>${title}</h3><p>${text}</p></div>`}
 function safeURL(url){try{const u=new URL(url);return ['https:','http:'].includes(u.protocol)?u.href:''}catch{return ''}}
 function date(value){return value?new Date(value).toLocaleDateString('pt-BR'):''}
-async function reload(){const generation=++loadGeneration;$('loading').classList.remove('hidden');try{const data=await Promise.all([api('/api/profile'),api('/api/jobs'),api('/api/resumes'),api('/api/ai/history')]);if(generation!==loadGeneration||!session)return;[profile,jobs,resumes,history]=data;render()}catch(e){if(generation===loadGeneration)toast(e.message,true)}finally{if(generation===loadGeneration)$('loading').classList.add('hidden')}}
-function clearAccount(){loadGeneration++;pendingJobUpdates.clear();jobFilters={query:'',stage:'',mode:'list'};apiKey='';profile={};jobs=[];resumes=[];history=[];estimate=null;estimatePayload=null;aiResult='';aiDraft={provider:'heuristic',model:'',task:'evaluate',job_id:'',resume_id:'',instruction:'',previous_text:'',max_output_tokens:512,input_price_per_million:'',output_price_per_million:''};$('view').replaceChildren();$('accountName').textContent='Minha conta';$('accountEmail').textContent='';$('avatar').textContent='C';$('jobForm').reset();$('jobDialog').close();$('jobDetailsDialog').close()}
+async function reload() {
+  const generation = ++loadGeneration;
+  const mutationGeneration = jobMutationGeneration;
+  $('loading').classList.remove('hidden');
+  try {
+    const data = await Promise.all([
+      api('/api/profile'), api('/api/jobs'), api('/api/resumes'), api('/api/ai/history'),
+    ]);
+    if (generation !== loadGeneration || !session) return;
+    const current = new Map(jobs.map(job => [job.id, job]));
+    [profile, jobs, resumes, history] = data;
+    jobs = jobs.map(job => {
+      const changed = jobStageChanges.get(job.id);
+      if (current.has(job.id) && (pendingJobUpdates.has(job.id) || changed > mutationGeneration)) {
+        return {...job, status: current.get(job.id).status};
+      }
+      return job;
+    });
+    render();
+  } catch (error) {
+    if (generation === loadGeneration) toast(error.message, true);
+  } finally {
+    if (generation === loadGeneration) $('loading').classList.add('hidden');
+  }
+}
+
+function clearAccount(){loadGeneration++;pendingJobUpdates.clear();jobStageChanges.clear();jobMutationGeneration++;jobFilters={query:'',stage:'',mode:'list'};apiKey='';profile={};jobs=[];resumes=[];history=[];estimate=null;estimatePayload=null;aiResult='';aiDraft={provider:'heuristic',model:'',task:'evaluate',job_id:'',resume_id:'',instruction:'',previous_text:'',max_output_tokens:512,input_price_per_million:'',output_price_per_million:''};$('view').replaceChildren();$('accountName').textContent='Minha conta';$('accountEmail').textContent='';$('avatar').textContent='C';$('jobForm').reset();$('jobDialog').close();$('jobDetailsDialog').close()}
 function showSession(next){if(next&&session?.user.id===next.user.id&&$('view').childElementCount){session=next;return}if(session?.user?.id!==next?.user?.id)clearAccount();session=next;const path=next?'/':'/auth';if(location.pathname!==path)window.history.replaceState(null,'',path+location.search+location.hash);$('gate').classList.toggle('hidden',!!next);$('shell').classList.toggle('hidden',!next);if(!next){clearAccount();return}const user=next.user;$('accountName').textContent=user.user_metadata?.full_name||user.email?.split('@')[0]||'Minha conta';$('accountEmail').textContent=user.email||'';$('avatar').textContent=($('accountName').textContent[0]||'C').toUpperCase();reload()}
 function setTab(){const next=location.hash.slice(1);tab=Object.hasOwn(titles,next)?next:'overview';render()}
 function render(){if(!session)return;$('pageTitle').textContent=titles[tab];document.querySelectorAll('[data-tab]').forEach(a=>a.classList.toggle('active',a.dataset.tab===tab));({overview:renderOverview,jobs:renderJobs,discover:renderDiscovery,profile:renderProfile,resumes:renderResumes,ai:renderAI,capture:renderCapture,data:renderData})[tab]()}
@@ -394,6 +419,8 @@ const jobBoardColumns = [
 ];
 let jobFilters = {query: '', stage: '', mode: 'list'};
 const pendingJobUpdates = new Set();
+const jobStageChanges = new Map();
+let jobMutationGeneration = 0;
 
 function jobBoardCard(job) {
   return `<article class="job-board-card" draggable="${!pendingJobUpdates.has(job.id)}" data-drag-job="${esc(job.id)}">
@@ -519,6 +546,7 @@ async function updateJobStage(id, stage) {
   const owner = session?.user.id;
   const previous = job.status;
   pendingJobUpdates.add(id);
+  jobStageChanges.set(id, ++jobMutationGeneration);
   job.status = stage;
   renderJobResults();
   try {
@@ -537,7 +565,10 @@ async function updateJobStage(id, stage) {
     }
   } finally {
     pendingJobUpdates.delete(id);
-    if (session?.user.id === owner) renderJobResults();
+    if (session?.user.id === owner) {
+      jobStageChanges.set(id, ++jobMutationGeneration);
+      renderJobResults();
+    }
   }
 }
 
