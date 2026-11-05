@@ -1,4 +1,6 @@
 'use strict';
+const openingAnimationStarted = performance.now();
+let openingAnimationTimer;
 const $ = id => document.getElementById(id);
 const esc = v => String(v ?? '').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const stages={saved:'Salva',skip:'Não priorizar',new:'Nova',review:'Em análise',ready:'Pronta para candidatura',applied:'Candidatura enviada',interview:'Entrevista',offer:'Proposta',rejected:'Encerrada',archived:'Arquivada'};
@@ -891,11 +893,23 @@ let recovery = authReturn.get('type') === 'recovery';
 const signupReturn = authReturn.get('type') === 'signup' && authReturn.has('access_token');
 
 function finishAuthTransition() {
-  $('auth-transition').classList.add('hidden');
+  clearTimeout(openingAnimationTimer);
+  const transition = $('auth-transition');
+  const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const remaining = reducedMotion ? 0 : Math.max(0, 1700 - (performance.now() - openingAnimationStarted));
+  openingAnimationTimer = setTimeout(() => {
+    transition.classList.add('is-leaving');
+    openingAnimationTimer = setTimeout(() => {
+      transition.classList.add('hidden');
+      transition.setAttribute('aria-busy', 'false');
+    }, reducedMotion ? 0 : 200);
+  }, remaining);
 }
 
 function showSignupWelcome(openDashboard) {
+  clearTimeout(openingAnimationTimer);
   const transition = $('auth-transition');
+  transition.classList.remove('is-leaving', 'hidden');
   transition.classList.add('auth-transition-success');
   $('auth-transition-title').textContent = 'E-mail confirmado!';
   $('auth-transition-description').textContent = 'Sua conta está pronta. Boas-vindas ao CareerOS.';

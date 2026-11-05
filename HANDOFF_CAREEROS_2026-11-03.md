@@ -689,3 +689,16 @@ e a identificação da página atual são mantidos.
 O teste no Edge com dados simulados verificou navegação, indicação de
 operação em andamento e renderização com movimento reduzido. Conferir
 GitHub e Render para confirmar a integração e o deploy desta continuação.
+
+## 26. Abertura com montagem da marca em 05/11/2026
+
+A tela inicial usa fragmentos em SVG e tons da identidade visual para
+compor o C da marca. A animação se repete enquanto o acesso é preparado
+e faz uma saída suave quando a inicialização termina. Em carregamentos
+rápidos, a abertura animada fica visível por aproximadamente 1,7 segundo.
+Com movimento reduzido, o símbolo aparece estático e a saída é imediata.
+A confirmação de e-mail conserva o estado de boas-vindas e o botão de acesso.
+
+O teste no Edge verificou os fragmentos, as fases visuais, o estado de
+confirmação e a saída com movimento reduzido. Consultar GitHub e Render
+para confirmar a publicação desta continuação.
