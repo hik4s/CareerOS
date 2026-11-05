@@ -18,6 +18,43 @@
 .discover-check input{width:auto;margin:0}
 .metric-link{color:inherit;text-decoration:none;display:block;transition:transform .16s ease,border-color .16s ease,box-shadow .16s ease}
 .metric-link:hover{transform:translateY(-3px);border-color:#b5a4f0;box-shadow:0 8px 24px #35276812}
+.overview-hero{display:grid;grid-template-columns:1.6fr 1fr;gap:28px;align-items:center;padding:32px;border-radius:20px;margin-bottom:24px;background:linear-gradient(120deg,#e9e2ff,#f3f0fb 65%,#e7effb);border:1px solid #ddd5f5}
+.overview-hero h2{font-size:clamp(25px,3vw,34px);letter-spacing:-.8px;margin:12px 0;color:#202542}
+.overview-hero p{font-size:15px;line-height:1.7;max-width:530px;color:#505875;margin-bottom:20px}
+.overview-hero>*,.overview-layout>*,.overview-opportunity>div{min-width:0}
+.overview-progress{padding:22px;border:1px solid #d5ccec;border-radius:16px;background:#ffffffa8;color:#333b59}
+.overview-progress>span{font-weight:700;font-size:15px}
+.overview-progress progress{display:block;width:100%;height:10px;margin:15px 0;accent-color:#7053e9;border:0;border-radius:10px;overflow:hidden}
+.overview-progress progress::-webkit-progress-bar{background:#e3def0}
+.overview-progress progress::-webkit-progress-value{background:#7053e9;border-radius:10px}
+.overview-progress small{font-size:13px;line-height:1.6;color:#56607b}
+.overview-metrics .metric{min-height:145px}
+.overview-metrics .metric strong{color:#29234e}
+.overview-layout{display:grid;grid-template-columns:minmax(260px,.85fr) minmax(0,1.4fr);gap:22px;margin-bottom:22px;align-items:start}
+.overview-layout>.card{margin-bottom:0}
+.overview-next{border-top:4px solid #7053e9}
+.overview-next h2{font-size:24px;line-height:1.3;margin:14px 0 10px;color:#202542}
+.overview-next>p{font-size:15px;color:#505875;line-height:1.7;margin-bottom:20px}
+.overview-next>.button{margin-bottom:20px}
+.overview-action{display:flex;align-items:center;gap:18px;justify-content:space-between;padding:16px 0;border-top:1px solid #e2e4ee;color:#333b59;text-decoration:none}
+.overview-action strong{font-size:14px;display:block;margin-bottom:5px}
+.overview-action div>span{font-size:13px;color:#56607b;line-height:1.6;display:block}
+.overview-action>span{background:#eee9fc;border-radius:10px;padding:8px 11px;color:#503ca3}
+.overview-opportunity{display:flex;justify-content:space-between;align-items:center;gap:18px;padding:18px 0;border-top:1px solid #e2e4ee}
+.overview-opportunity h3{font-size:16px;line-height:1.5;margin:10px 0 6px}
+.overview-opportunity p{font-size:13px;color:#56607b;margin:0;line-height:1.6}
+.overview-fit{color:#4e3b94;font-weight:800;font-size:23px;white-space:nowrap;text-align:right}
+.overview-fit small{display:block;font-weight:500;font-size:11px;color:#56607b}
+.overview-checklist{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px}
+.overview-step{display:flex;flex-direction:column;gap:10px;background:#f7f8fc;border:1px solid #dfe2ee;border-radius:14px;padding:18px;color:#333b59;text-decoration:none}
+.overview-step strong{font-size:14px}
+.overview-step>span:not(.overview-step-number){font-size:13px;line-height:1.6;color:#56607b}
+.overview-step small{margin-top:auto;color:#583dae}
+.overview-step-number{width:30px;height:30px;display:grid;place-items:center;background:#e7e0fa;border-radius:10px;font-weight:700;color:#583dae}
+.overview-step.is-complete .overview-step-number{background:#d9f0e7;color:#236a52}
+.overview-step:hover,.overview-action:hover{border-color:#a999db}
+@media(max-width:1050px){.overview-hero{grid-template-columns:minmax(0,1fr)}.overview-layout{grid-template-columns:minmax(0,1fr)}.overview-checklist{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:560px){.overview-hero{padding:22px;gap:20px}.overview-checklist{grid-template-columns:minmax(0,1fr)}.overview-fit{font-size:19px}.overview-opportunity{gap:12px}.overview-progress{padding:18px}.overview-hero .job-actions>*{width:100%}.overview-layout .section-head{flex-wrap:wrap}.overview-metrics .metric{padding:16px;min-width:0}.overview-metrics .metric small{line-height:1.6}}
 .jobs-workspace-toolbar{display:flex;align-items:center;flex-wrap:wrap;gap:12px;margin:18px 0}
 .jobs-workspace-toolbar>span{font-size:14px;color:#4a5370;margin-right:auto}
 .view-switch{display:inline-flex;gap:4px;padding:4px;background:#e9e6f5;border-radius:12px}
