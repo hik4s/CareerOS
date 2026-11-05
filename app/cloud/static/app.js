@@ -41,7 +41,102 @@ function clearAccount(){loadGeneration++;pendingJobUpdates.clear();jobStageChang
 function showSession(next){if(next&&session?.user.id===next.user.id&&$('view').childElementCount){session=next;return}if(session?.user?.id!==next?.user?.id)clearAccount();session=next;const path=next?'/':'/auth';if(location.pathname!==path)window.history.replaceState(null,'',path+location.search+location.hash);$('gate').classList.toggle('hidden',!!next);$('shell').classList.toggle('hidden',!next);if(!next){clearAccount();return}const user=next.user;$('accountName').textContent=user.user_metadata?.full_name||user.email?.split('@')[0]||'Minha conta';$('accountEmail').textContent=user.email||'';$('avatar').textContent=($('accountName').textContent[0]||'C').toUpperCase();reload()}
 function setTab(){const next=location.hash.slice(1);tab=Object.hasOwn(titles,next)?next:'overview';render()}
 function render(){if(!session)return;$('pageTitle').textContent=titles[tab];document.querySelectorAll('[data-tab]').forEach(a=>a.classList.toggle('active',a.dataset.tab===tab));({overview:renderOverview,jobs:renderJobs,discover:renderDiscovery,profile:renderProfile,resumes:renderResumes,ai:renderAI,capture:renderCapture,data:renderData})[tab]()}
-function renderOverview(){const active=jobs.filter(j=>!['archived','rejected'].includes(j.status));const first=profile.full_name?.split(' ')[0];$('view').innerHTML=`<div class="hero"><span class="eyebrow">UM PASSO DE CADA VEZ</span><h2>${first?`Olá, ${esc(first)}. `:''}Sua próxima oportunidade<br>merece um bom plano.</h2><p>Acompanhe suas candidaturas e prepare materiais com base no que você realmente sabe e já construiu.</p><a class="button" href="#jobs">Explorar minhas vagas <span>→</span></a></div><div class="metrics">${[[jobs.length,'Vagas salvas','Seu repertório de oportunidades','▣'],[jobs.filter(j=>j.status==='applied').length,'Candidaturas enviadas','Etapa marcada por você','↗'],[jobs.filter(j=>j.status==='interview').length,'Em entrevista','Conversas em andamento','◎'],[resumes.length,'Currículos','Arquivos na sua conta','▤']].map(([n,l,d,i],index)=>`<a class="metric metric-link" href="${index===3?'#resumes':'#jobs'}" data-metric-filter="${['','applied','interview',''][index]}"><span class="metric-icon">${i}</span><span class="metric-label">${l}</span><strong>${n}</strong><small>${d}</small></a>`).join('')}</div><div class="grid-two"><div class="card"><div class="section-head"><div><h2>No seu radar</h2><p>Suas oportunidades em andamento.</p></div><a class="inline-link" href="#jobs">Ver todas →</a></div>${active.length?active.slice(0,3).map(j=>`<div class="file-row"><div><h3><button type="button" class="job-title-button" data-job-details="${esc(j.id)}">${esc(j.title)}</button></h3><small>${esc(j.company)} · ${stages[j.status]||esc(j.status)}</small></div><span class="badge">${j.fit_score==null?'Sem análise':`${esc(j.fit_score)}% de aderência`}</span></div>`).join(''):empty('Seu radar está pronto','Salve sua primeira vaga para começar a acompanhar as possibilidades.')}</div><div class="card"><div class="section-head"><h2>Construa sua base</h2></div><div class="steps"><div class="step"><span class="step-number">01</span><div><a href="#profile">Dê contexto ao seu perfil →</a><p>Habilidades, projetos e experiências reais.</p></div></div><div class="step"><span class="step-number">02</span><div><a href="#resumes">Organize seus currículos →</a><p>Seus arquivos sempre à mão.</p></div></div><div class="step"><span class="step-number">03</span><div><a href="#ai">Prepare o próximo passo →</a><p>Revise seus materiais com assistência.</p></div></div></div></div></div>`;bindJobActions();document.querySelectorAll('[data-metric-filter]').forEach(link=>{link.onclick=()=>{jobFilters={query:'',stage:link.dataset.metricFilter,mode:'list'};rememberJobFilters()}})}
+function overviewModel(profile, jobs, resumes) {
+  const count = stage => jobs.filter(job => job.status === stage).length;
+  const profileReady = !!(profile.full_name?.trim() && (profile.email?.trim() || profile.phone?.trim())
+    && (profile.skills?.length || profile.evidence?.length));
+  const preparation = [
+    {done: profileReady, title: 'Complete seu perfil', text: 'Nome, contato e habilidades ou projetos.', href: '#profile'},
+    {done: resumes.length > 0, title: 'Adicione seu currículo', text: 'Tenha um arquivo pronto para revisar por vaga.', href: '#resumes'},
+    {done: jobs.length > 0, title: 'Salve oportunidades', text: 'Escolha vagas alinhadas ao que você procura.', href: '#discover'},
+    {done: jobs.some(job => job.fit_score != null || (job.analysis && Object.keys(job.analysis).length > 0)),
+     title: 'Analise uma vaga', text: 'Compare os requisitos com seu perfil.', href: '#jobs', stage: ''},
+  ];
+  const actions = [];
+  for (const [stage, title, text] of [
+    ['offer', 'Revise suas propostas', 'Confira as condições e registre sua decisão.'],
+    ['interview', 'Prepare suas entrevistas', 'Releia a vaga e organize seus exemplos.'],
+    ['ready', 'Revise suas candidaturas', 'Confira currículo e respostas antes de enviar.'],
+    ['review', 'Continue suas análises', 'Revise a aderência e escolha as próximas vagas.'],
+  ]) {
+    if (count(stage)) actions.push({title, text, href: '#jobs', stage, count: count(stage)});
+  }
+  actions.push(...preparation.filter(step => !step.done));
+  if (!actions.length) actions.push({
+    title: 'Amplie seu radar', text: 'Busque novas oportunidades ou acompanhe suas candidaturas.',
+    href: '#discover',
+  });
+  return {count, preparation, actions: actions.slice(0, 3)};
+}
+
+function renderOverview() {
+  const {count, preparation, actions} = overviewModel(profile, jobs, resumes);
+  const first = profile.full_name?.trim().split(/\s+/)[0];
+  const completed = preparation.filter(step => step.done).length;
+  const next = actions[0];
+  const priorities = ['offer', 'interview', 'ready', 'review', 'saved', 'new', 'applied'];
+  const active = jobs.filter(job => priorities.includes(job.status))
+    .sort((left, right) => priorities.indexOf(left.status) - priorities.indexOf(right.status)).slice(0, 4);
+  const metric = (number, label, detail, stage, href = '#jobs') => `
+    <a class="metric metric-link" href="${href}" ${stage !== null ? `data-overview-stage="${stage}"` : ''}>
+      <span class="metric-label">${label}</span><strong>${number}</strong><small>${detail} →</small>
+    </a>`;
+  $('view').innerHTML = `
+    <div class="overview-hero">
+      <div><span class="eyebrow">SEU PAINEL DE CARREIRA</span>
+        <h2>${first ? 'Olá, ' + esc(first) + '.' : 'Seu próximo passo começa aqui.'}</h2>
+        <p>Veja onde suas oportunidades estão e escolha o que fazer agora.</p>
+        <div class="job-actions"><a class="button" href="#discover">Encontrar vagas ↗</a>
+          <a class="button secondary" href="#jobs" data-overview-board>Ver quadro de etapas</a></div>
+      </div>
+      <div class="overview-progress"><span>${completed} de ${preparation.length} passos da preparação</span>
+        <progress value="${completed}" max="${preparation.length}" aria-label="Etapas de preparação concluídas"></progress>
+        <small>Perfil, currículo, oportunidades e análise.</small>
+      </div>
+    </div>
+    <div class="metrics overview-metrics">
+      ${metric(jobs.length, 'Oportunidades salvas', 'Explorar minha lista', '')}
+      ${metric(count('applied'), 'Aguardando retorno', 'Candidaturas na etapa enviada', 'applied')}
+      ${metric(count('interview'), 'Em entrevista', 'Preparar conversas', 'interview')}
+      ${metric(count('offer'), 'Propostas', 'Revisar condições', 'offer')}
+    </div>
+    <div class="overview-layout">
+      <section class="card overview-next"><span class="eyebrow">PRÓXIMO PASSO</span>
+        <h2>${esc(next.title)}</h2><p>${esc(next.text)}</p>
+        <a class="button" href="${next.href}" ${next.stage !== undefined ? `data-overview-stage="${next.stage}"` : ''}>Continuar →</a>
+        ${actions.slice(1).map(action => `<a class="overview-action" href="${action.href}" ${action.stage !== undefined ? `data-overview-stage="${action.stage}"` : ''}>
+          <div><strong>${esc(action.title)}</strong><span>${esc(action.text)}</span></div>
+          <span aria-hidden="true">${action.count ?? '→'}</span></a>`).join('')}
+      </section>
+      <section class="card"><div class="section-head"><div><h2>Seu radar em movimento</h2><p>Prioridade para propostas, entrevistas e preparação.</p></div>
+        <a class="inline-link" href="#jobs" data-overview-stage="">Ver todas →</a></div>
+        ${active.length ? active.map(job => `<div class="overview-opportunity"><div>
+          <span class="badge">${esc(stages[job.status])}</span>
+          <h3><button type="button" class="job-title-button" data-job-details="${esc(job.id)}">${esc(job.title)}</button></h3>
+          <p>${esc(job.company)}${job.location ? ' · ' + esc(job.location) : ''}</p></div>
+          ${job.fit_score != null ? `<span class="overview-fit">${esc(job.fit_score)}%<small>aderência local</small></span>` : ''}</div>`).join('')
+          : empty('Seu radar está pronto', 'Salve uma vaga para acompanhar seus próximos passos por aqui.')}
+      </section>
+    </div>
+    <section class="card"><div class="section-head"><div><h2>Sua preparação</h2><p>Retome cada etapa quando precisar atualizar seus dados.</p></div></div>
+      <div class="overview-checklist">${preparation.map((step, index) => `<a href="${step.href}" class="overview-step ${step.done ? 'is-complete' : ''}"
+        ${step.stage !== undefined ? `data-overview-stage="${step.stage}"` : ''}>
+        <span class="overview-step-number" aria-label="${step.done ? 'Etapa concluída' : 'Etapa pendente'}">${step.done ? '✓' : index + 1}</span>
+        <strong>${esc(step.title)}</strong><span>${esc(step.text)}</span>
+        <small>${step.done ? 'Revisar' : 'Começar'} →</small></a>`).join('')}</div>
+    </section>`;
+  bindJobActions();
+  document.querySelectorAll('[data-overview-stage]').forEach(link => {
+    link.onclick = () => {
+      jobFilters = {query: '', stage: link.dataset.overviewStage, mode: 'list'};
+      rememberJobFilters();
+    };
+  });
+  document.querySelector('[data-overview-board]').onclick = () => {
+    jobFilters = {query: '', stage: '', mode: 'board'};
+    rememberJobFilters();
+  };
+}
 function jobCard(j){const a=j.analysis||{};const url=safeURL(j.url);return `<article class="job"><div class="job-top"><div><h3><button type="button" class="job-title-button" data-job-details="${esc(j.id)}">${esc(j.title)}</button></h3><p>${esc(j.company)}${j.location?' · '+esc(j.location):''}${j.work_model?' · '+esc(j.work_model):''}</p></div><span class="score">${j.fit_score==null?'Sem análise':`${esc(j.fit_score)}% aderência`}</span></div><div>${(a.matched_skills||[]).map(s=>`<span class="badge">${esc(s)}</span>`).join('')}</div>${(a.blockers||[]).map(s=>`<p>${esc(s)}</p>`).join('')}<div class="job-actions"><select aria-label="Etapa de ${esc(j.title)}" data-stage="${esc(j.id)}">${Object.entries(stages).map(([v,l])=>`<option value="${v}" ${j.status===v?'selected':''}>${l}</option>`).join('')}</select><button class="small secondary" data-analyze="${esc(j.id)}">Analisar perfil</button><button class="small secondary" data-edit="${esc(j.id)}">Editar</button>${url?`<a class="button secondary small" href="${esc(url)}" target="_blank" rel="noopener noreferrer">Abrir ↗</a>`:''}<button class="small danger" data-delete="${esc(j.id)}">Excluir</button></div></article>`}
 const workModelLabels = {remote: 'Remoto', hybrid: 'Híbrido', onsite: 'Presencial'};
 const jobSectionHeadings = [

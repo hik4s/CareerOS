@@ -664,3 +664,16 @@ com dados simulados verificou o quadro, busca sem acentuação, restauração
 de filtros, mudança de etapa e reversão após falha de rede. O fluxo com
 conta real ainda exige homologação. Consultar o GitHub e o Render para
 confirmar a integração e o deploy desta continuação.
+
+## 24. Visão geral orientada a próximos passos em 05/11/2026
+
+O usuário escolheu destacar a visão geral. O painel passou a exibir quatro
+indicadores clicáveis, progresso das etapas de preparação e próximos passos
+calculados pelos dados da conta. Propostas, entrevistas e candidaturas prontas
+têm prioridade. O radar abre os detalhes das vagas, e o checklist permite
+retomar perfil, currículos, busca e análise.
+
+O progresso registra a presença dos dados básicos, currículo, oportunidades
+e ao menos uma análise. A validação local no Edge usou dados simulados para
+conta vazia, entrevistas, propostas, atalhos e largura responsiva. Conferir
+GitHub e Render para confirmar a publicação desta continuação.
