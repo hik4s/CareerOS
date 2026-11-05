@@ -1,5 +1,6 @@
 """Search public job feeds for the CareerOS job browser."""
 import asyncio
+from functools import lru_cache
 from contextlib import AsyncExitStack, asynccontextmanager, suppress
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -82,6 +83,8 @@ class Snapshot:
     partial: bool = False
 _jooble_cache = {}
 _jooble_lock = asyncio.Lock()
+_jooble_tasks = {}
+JOOBLE_WAIT_SECONDS = 1.25
 
 
 def clean(value, limit):
@@ -123,11 +126,14 @@ ALIASES = (
     ('junior', 'jr'), ('dados', 'data'), ('desenvolvedor', 'desenvolvedora', 'developer'),
     ('engenheiro', 'engenheira', 'engineer'), ('analista', 'analyst'),
     ('remoto', 'remota', 'remote'),
+    ('ti', 'tecnologia da informacao', 'information technology'),
 )
 STOP_WORDS = {'a', 'as', 'o', 'os', 'de', 'da', 'do', 'das', 'dos', 'em', 'no', 'na', 'para', 'e'}
 
 
+@lru_cache(maxsize=512)
 def search_terms(value):
+    value = re.sub(r'\b(?:tecnologia da informacao|information technology)\b', 'ti', folded(value))
     words = re.findall(r'[\w+#.]+', folded(value))
     terms = dict.fromkeys(word.strip('.') for word in words if word.strip('.') not in STOP_WORDS | {''})
     return [re.compile(r'(?<!\w)(?:' + '|'.join(re.escape(alias) for alias in
@@ -177,8 +183,6 @@ def relevance(job, title, company, terms, *, title_only=False, provider_matched=
             score += 5
         elif term.search(job['search_text']):
             score += 1
-        elif provider_matched:
-            scope = 'provider'
         else:
             return None
     return score, scope
@@ -756,7 +760,7 @@ async def discovery_lifespan(app):
         task.cancel()
         with suppress(asyncio.CancelledError):
             await task
-        pending = list(_refresh_tasks.values())
+        pending = [*_refresh_tasks.values(), *_jooble_tasks.values()]
         for refresh in pending:
             refresh.cancel()
         await asyncio.gather(*pending, return_exceptions=True)
@@ -795,11 +799,29 @@ async def search_jooble(key, query, location, remote):
 
 
 async def jooble_feed(key, query, location, remote):
-    try:
-        jobs, available = await search_jooble(key, query, location, remote)
-        return jobs, available, False
-    except TimeoutError:
-        return [], False, False
+    keywords = f'{query} remoto' if remote else query
+    cache_key = (keywords.casefold(), (location or 'Brasil').casefold(), remote)
+    cached = _jooble_cache.get(cache_key)
+    if cached and time.monotonic() < cached[0]:
+        return *cached[1], False
+    task = _jooble_tasks.get(cache_key)
+    if task is None:
+        if len(_jooble_tasks) >= 128:
+            return *(cached[1] if cached else ([], False)), False
+        task = asyncio.create_task(search_jooble(key, query, location, remote))
+        _jooble_tasks[cache_key] = task
+
+        def finished(done):
+            if _jooble_tasks.get(cache_key) is done:
+                _jooble_tasks.pop(cache_key, None)
+            if not done.cancelled():
+                done.exception()
+
+        task.add_done_callback(finished)
+    await asyncio.wait([task], timeout=JOOBLE_WAIT_SECONDS)
+    if task.done() and not task.cancelled() and task.exception() is None:
+        return *task.result(), False
+    return *(cached[1] if cached else ([], False)), not task.done()
 
 
 @router.get('/jobs')
@@ -868,7 +890,7 @@ async def discover_jobs(q: str = Query('', max_length=120),
                 continue
             if level and not LEVELS[level].search(folded(job['title'])):
                 continue
-            if not radius_km and not matches_location(job, where, model) and (name != 'Jooble' or where == 'brasil'):
+            if not radius_km and not matches_location(job, where, model):
                 continue
             match = best_match(job, alternatives, title_only=title_only,
                                provider_matched=name == 'Jooble' and not radius_km)

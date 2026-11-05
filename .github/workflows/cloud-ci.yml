@@ -23,3 +23,4 @@ jobs:
       - run: python -m compileall -q app/cloud
       - run: node --check extension-cloud/background.js && node --check extension-cloud/popup.js && node --check extension-cloud/origin.js
       - run: node --check app/cloud/static/app.js && node --check app/cloud/static/vendor/supabase.js
+      - run: node scripts/test_cloud_loading.cjs

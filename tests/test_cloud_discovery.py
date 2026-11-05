@@ -441,3 +441,45 @@ def test_search_reuses_snapshot_while_one_refresh_runs(monkeypatch):
         await asyncio.gather(task, return_exceptions=True)
 
     asyncio.run(scenario())
+
+
+def test_it_aliases_match_domain_without_matching_unrelated_words():
+    job = discovery.normalize({'title': 'Estágio em Tecnologia da Informação',
+                               'url': 'https://example.com/it'}, 'Fonte', '')
+    assert discovery.best_match(job, [discovery.search_terms('ti')], title_only=True, provider_matched=False)
+    unrelated = discovery.normalize({'title': 'Marketing Digital', 'description': 'Great opportunity',
+                                     'url': 'https://example.com/marketing'}, 'Fonte', '')
+    assert discovery.best_match(unrelated, [discovery.search_terms('ti')], title_only=False, provider_matched=False) is None
+    assert discovery.best_match(job, [discovery.search_terms('tecnologia da informação')], title_only=True, provider_matched=False)
+
+
+def test_provider_results_must_still_match_requested_terms():
+    job = discovery.normalize({'title': 'Gerente de vendas', 'url': 'https://example.com/sales'}, 'Jooble', '')
+    assert discovery.best_match(job, [discovery.search_terms('python')], title_only=False, provider_matched=True) is None
+
+
+def test_slow_jooble_returns_promptly_and_shares_inflight_request(monkeypatch):
+    import asyncio
+
+    async def scenario():
+        calls = []
+        gate = asyncio.Event()
+
+        async def slow(*args):
+            calls.append(args)
+            await gate.wait()
+            return [], True
+
+        monkeypatch.setattr(discovery, 'search_jooble', slow)
+        monkeypatch.setattr(discovery, 'JOOBLE_WAIT_SECONDS', .01)
+        discovery._jooble_tasks.clear()
+        results = await asyncio.wait_for(asyncio.gather(
+            discovery.jooble_feed('key', 'python', '', False),
+            discovery.jooble_feed('key', 'python', '', False)), timeout=.2)
+        assert results == [([], False, True), ([], False, True)]
+        assert len(calls) == 1
+        gate.set()
+        await asyncio.sleep(.01)
+        assert not discovery._jooble_tasks
+
+    asyncio.run(scenario())

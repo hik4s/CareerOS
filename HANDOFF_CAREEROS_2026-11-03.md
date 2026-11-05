@@ -710,3 +710,11 @@ para confirmar a publicação desta continuação.
 - Busca de vagas usa o mesmo indicador e mantém os resultados visíveis durante consultas.
 - Animações respeitam preferência de movimento reduzido. Cache de CSS/JS atualizado.
 - Verificação: 84 testes cloud com PYTHONUTF8=1, sintaxe Node, teste de ciclo de carregamento e prévia no Edge sem interface.
+
+## 28. Fluidez e precisão da busca — 5 de novembro
+- Jooble aguarda no máximo 1,25 s na resposta inicial; consultas continuam em segundo plano, reutilizam tarefas iguais e cache. Até 128 consultas simultâneas pendentes; cancelamento no desligamento.
+- Todas as fontes passam pela correspondência local de termos e localização, sem exceção para provedor externo. Título mantém prioridade e os termos separados por vírgula continuam alternativas.
+- TI, tecnologia da informação e information technology reconhecidos como equivalentes com limites de palavra; cache de até 512 consultas compiladas.
+- Painel não depende do histórico opcional da IA. Atualização desse histórico modifica somente seu bloco, preservando os campos do formulário.
+- Ao sair da busca, consultas HTTP e tentativas de atualização são canceladas.
+- Validação de 87 testes cloud e teste Node do ciclo de carregamento, incluído no CI. Não representa medição de latência real dos provedores em produção.
