@@ -5,9 +5,39 @@ const stages={saved:'Salva',skip:'Não priorizar',new:'Nova',review:'Em análise
 const titles={overview:'Visão geral',jobs:'Minhas vagas',discover:'Buscar vagas',profile:'Meu perfil',resumes:'Currículos',ai:'Assistente IA',capture:'Capturar vagas',data:'Meus dados'};
 let client,session,profile={},jobs=[],resumes=[],history=[],apiKey='',tab='overview',estimate=null,estimatePayload=null,aiResult='',loadGeneration=0;
 let aiDraft={provider:'heuristic',model:'',task:'evaluate',job_id:'',resume_id:'',instruction:'',previous_text:'',max_output_tokens:512,input_price_per_million:'',output_price_per_million:''};
-function toast(message,error=false){$('toast').textContent=message;$('toast').className=error?'error':'';clearTimeout(toast.timer);toast.timer=setTimeout(()=>$('toast').textContent='',6000)}
+function toast(message, error = false) {
+  const element = $('toast');
+  element.textContent = message;
+  element.className = error ? 'error' : '';
+  clearTimeout(toast.timer);
+  if (!matchMedia('(prefers-reduced-motion: reduce)').matches && element.animate) {
+    element.getAnimations().forEach(animation => animation.cancel());
+    element.animate([{opacity: 0, transform: 'translateY(10px)'}, {opacity: 1, transform: 'translateY(0)'}],
+      {duration: 180, easing: 'ease-out'});
+  }
+  toast.timer = setTimeout(() => { element.textContent = ''; }, 6000);
+}
 async function api(path,options={},expectedOwner){const {data,error}=await client.auth.getSession();if(error||!data.session||(expectedOwner && data.session.user.id!==expectedOwner))throw Error('Sua sessão expirou. Entre novamente.');const headers={Authorization:`Bearer ${data.session.access_token}`,...options.headers};if(options.body&&!(options.body instanceof FormData))headers['Content-Type']='application/json';const response=await fetch(path,{...options,headers});if(!response.ok){let body;try{body=await response.json()}catch{}throw Error(typeof body?.detail==='string'?body.detail:`Não foi possível concluir a operação (${response.status}).`)}return response.status===204?null:response.json()}
-async function busy(button,fn){const original=button?.textContent;if(button){button.disabled=true;button.textContent='Aguarde…'}try{return await fn()}catch(e){toast(e.message||'Ocorreu um erro.',true)}finally{if(button){button.disabled=false;button.textContent=original}}}
+async function busy(button, action) {
+  const original = button?.textContent;
+  if (button) {
+    button.disabled = true;
+    button.setAttribute('aria-busy', 'true');
+    button.textContent = 'Aguarde…';
+  }
+  try {
+    return await action();
+  } catch (error) {
+    toast(error.message || 'Ocorreu um erro.', true);
+  } finally {
+    if (button) {
+      button.disabled = false;
+      button.removeAttribute('aria-busy');
+      button.textContent = original;
+    }
+  }
+}
+
 function empty(title,text){return `<div class="empty"><div class="empty-icon">◇</div><h3>${title}</h3><p>${text}</p></div>`}
 function safeURL(url){try{const u=new URL(url);return ['https:','http:'].includes(u.protocol)?u.href:''}catch{return ''}}
 function date(value){return value?new Date(value).toLocaleDateString('pt-BR'):''}
@@ -39,8 +69,36 @@ async function reload() {
 
 function clearAccount(){loadGeneration++;pendingJobUpdates.clear();jobStageChanges.clear();jobMutationGeneration++;jobFilters={query:'',stage:'',mode:'list'};apiKey='';profile={};jobs=[];resumes=[];history=[];estimate=null;estimatePayload=null;aiResult='';aiDraft={provider:'heuristic',model:'',task:'evaluate',job_id:'',resume_id:'',instruction:'',previous_text:'',max_output_tokens:512,input_price_per_million:'',output_price_per_million:''};$('view').replaceChildren();$('accountName').textContent='Minha conta';$('accountEmail').textContent='';$('avatar').textContent='C';$('jobForm').reset();$('jobDialog').close();$('jobDetailsDialog').close()}
 function showSession(next){if(next&&session?.user.id===next.user.id&&$('view').childElementCount){session=next;return}if(session?.user?.id!==next?.user?.id)clearAccount();session=next;const path=next?'/':'/auth';if(location.pathname!==path)window.history.replaceState(null,'',path+location.search+location.hash);$('gate').classList.toggle('hidden',!!next);$('shell').classList.toggle('hidden',!next);if(!next){clearAccount();return}const user=next.user;$('accountName').textContent=user.user_metadata?.full_name||user.email?.split('@')[0]||'Minha conta';$('accountEmail').textContent=user.email||'';$('avatar').textContent=($('accountName').textContent[0]||'C').toUpperCase();reload()}
-function setTab(){const next=location.hash.slice(1);tab=Object.hasOwn(titles,next)?next:'overview';render()}
-function render(){if(!session)return;$('pageTitle').textContent=titles[tab];document.querySelectorAll('[data-tab]').forEach(a=>a.classList.toggle('active',a.dataset.tab===tab));({overview:renderOverview,jobs:renderJobs,discover:renderDiscovery,profile:renderProfile,resumes:renderResumes,ai:renderAI,capture:renderCapture,data:renderData})[tab]()}
+let lastAnimatedTab = null;
+function setTab() {
+  const next = location.hash.slice(1);
+  const selected = Object.hasOwn(titles, next) ? next : 'overview';
+  const changed = selected !== tab;
+  tab = selected;
+  render();
+  if (changed) window.scrollTo({top: 0, behavior: 'auto'});
+}
+function render() {
+  if (!session) return;
+  $('pageTitle').textContent = titles[tab];
+  document.querySelectorAll('[data-tab]').forEach(link => {
+    const active = link.dataset.tab === tab;
+    link.classList.toggle('active', active);
+    if (active) link.setAttribute('aria-current', 'page');
+    else link.removeAttribute('aria-current');
+  });
+  ({overview: renderOverview, jobs: renderJobs, discover: renderDiscovery, profile: renderProfile,
+    resumes: renderResumes, ai: renderAI, capture: renderCapture, data: renderData})[tab]();
+  if (lastAnimatedTab !== tab && !matchMedia('(prefers-reduced-motion: reduce)').matches) {
+    [...$('view').children].slice(0, 6).forEach((element, index) => {
+      element.animate?.(
+        [{opacity: 0, transform: 'translateY(8px)'}, {opacity: 1, transform: 'translateY(0)'}],
+        {duration: 220, delay: index * 35, easing: 'cubic-bezier(.2,.7,.2,1)', fill: 'backwards'},
+      );
+    });
+  }
+  lastAnimatedTab = tab;
+}
 function overviewModel(profile, jobs, resumes) {
   const count = stage => jobs.filter(job => job.status === stage).length;
   const profileReady = !!(profile.full_name?.trim() && (profile.email?.trim() || profile.phone?.trim())
