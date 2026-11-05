@@ -128,3 +128,34 @@ linha e limitadas a 30 mil caracteres.
 - [Documentação do feed Arbeitnow](https://www.arbeitnow.com/blog/job-board-api)
 - [Feed para parceiros da Gupy](https://developers.gupy.io/docs/integra%C3%A7%C3%A3o-com-job-boards-parceiros)
 - [API de busca do Jooble](https://jooblehelpcenter.freshdesk.com/pt-PT/support/solutions/articles/60001448238-documentac%C3%A3o-da-jooble-rest-api)
+
+## Descoberta regional automática — 05/11/2026
+
+A cidade informada inicia uma busca de portais locais por SearchApi (preferencial)
+ou SerpApi, reutilizando `CAREEROS_SEARCHAPI_API_KEY` ou
+`CAREEROS_SERPAPI_API_KEY` do servidor. Sem uma dessas chaves, a interface informa
+que a descoberta está indisponível. Nenhum serviço foi contratado nesta etapa.
+A consulta externa contém somente a cidade, sem currículo ou contato.
+
+A coleta ocorre em segundo plano, com cache compartilhado por cidade por 24 h.
+São examinados até quatro domínios e dois links de detalhes adicionais por
+região. Apenas páginas com `JobPosting` válido entram como vagas e passam pelos
+filtros existentes de região, termos e perfil. Portais sem formato compatível
+aparecem como links “Consultar no portal”, sem inflar o número de vagas.
+Isso não garante cobertura de todos os sites ou cidades; novos adaptadores
+continuam necessários para fontes sem dados estruturados.
+
+Proteções: HTTPS público com DNS validado e IP fixado na conexão, TLS verificado,
+sem seguir redirecionamentos, respeito a robots.txt, limite de 1 MiB por resposta,
+resolução DNS com espera de 2 s e no máximo duas threads, duas coletas simultâneas
+e oito regiões em fila. Há limite de 20 consultas orgânicas por dia UTC por
+processo (reinícios zeram esse contador). Cache em disco segue a mesma pasta
+`CAREEROS_DISCOVERY_CACHE_DIR`; no Render gratuito é efêmero. A tela acompanha a
+atualização regional enquanto a busca continua aberta.
+
+Validação: testes com páginas simuladas de Curitiba e Recife exercitam o parser
+real de JobPosting, além de cache concorrente, robots e proteção de rede.
+A coleta real de novos domínios não foi validada de ponta a ponta nesta etapa:
+o ambiente local não resolveu DNS direto e o painel Render exigiu novo login.
+A presença das chaves em produção ainda precisa ser confirmada. O adaptador
+Inova Prudente existente permanece disponível independentemente dessa camada.

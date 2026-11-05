@@ -26,6 +26,7 @@ from .auth import require_user
 from .store import SupabaseStore, get_store
 from .regional_jobs import InovaCards
 from .job_fit import career_fit
+from . import source_discovery
 from .proximity import city_center, nearest_distance
 
 router = APIRouter(prefix='/api/discovery', dependencies=[Depends(require_user)])
@@ -781,7 +782,7 @@ async def discovery_lifespan(app):
         task.cancel()
         with suppress(asyncio.CancelledError):
             await task
-        pending = [*_refresh_tasks.values(), *_jooble_tasks.values(), *_query_tasks.values()]
+        pending = [*_refresh_tasks.values(), *_jooble_tasks.values(), *_query_tasks.values(), *source_discovery._tasks.values()]
         for refresh in pending:
             refresh.cancel()
         await asyncio.gather(*pending, return_exceptions=True)
@@ -952,7 +953,13 @@ async def discover_jobs(q: str = Query('', max_length=120),
         names.append('Jooble')
         keys.append('jooble')
         requests.append(jooble_alternatives(jooble_key, q.strip(), location.strip(), requested_model == 'remote'))
-    feeds = await asyncio.gather(*requests)
+    requests.append(source_discovery.regional_feed(location.strip(), fetch_rows, structured_job))
+    outcomes = await asyncio.gather(*requests)
+    feeds = outcomes[:-1]
+    regional, regional_pending = outcomes[-1]
+    names.append('Fontes locais da região')
+    keys.append('regional')
+    feeds.append((regional.jobs, regional.available, regional_pending))
     alternatives = [terms for group in q.split(',') if (terms := search_terms(group))] or [[]]
     where = folded(location.strip())
     if where in ('br', 'brazil'):
@@ -1010,4 +1017,6 @@ async def discover_jobs(q: str = Query('', max_length=120),
     offset = (page - 1) * PAGE_SIZE
     # Older tabs still call portals.map() on this response.
     return {'jobs': results[offset:offset + PAGE_SIZE], 'total': len(results), 'portals': [],
-            'page': page, 'page_size': PAGE_SIZE, 'sources': sources}
+            'page': page, 'page_size': PAGE_SIZE, 'sources': sources,
+            'regional_discovery': {'city': location.strip(), 'refreshing': regional_pending,
+                                   'reason': regional.reason, 'sources': regional.sources}}
