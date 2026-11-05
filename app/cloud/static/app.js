@@ -524,7 +524,7 @@ function renderDiscovery() {
         }
         state.page = refreshing ? page : (result.page ?? page);
         remember();
-        if (refreshing && attempt < 7) {
+        if (refreshing && (attempt < 7 || result.regional_discovery?.refreshing)) {
           retry = setTimeout(() => search(query, page, null, attempt + 1), 4000);
         }
       } finally {
@@ -556,6 +556,23 @@ function renderDiscoveryResults(result, goToPage) {
   if (!Array.isArray(found) || !Array.isArray(sources)) {
     throw Error('A busca retornou uma resposta inesperada. Tente novamente.');
   }
+  const regional = result.regional_discovery;
+  const regionalMessages = {
+    city_required: 'Informe uma cidade para descobrir portais locais.',
+    provider_not_configured: 'A descoberta automática de novos portais está indisponível neste ambiente.',
+    daily_limit: 'O limite diário de descoberta foi atingido. Fontes já coletadas continuam disponíveis.',
+    unavailable: 'Não foi possível atualizar as fontes locais agora.',
+    busy: 'Há outras regiões sendo consultadas. Tente novamente em instantes.',
+  };
+  const regionalStatus = regional?.refreshing ? 'Procurando e validando fontes da região…' :
+    regionalMessages[regional?.reason] || 'Fontes encontradas para a região. Somente vagas verificadas entram nos resultados abaixo.';
+  const regionalLinks = Array.isArray(regional?.sources) ? regional.sources.map(source => {
+    const url = safeURL(source.url);
+    if (!url) return '';
+    const labels = {integrated:'Vaga extraída',needs_adapter:'Consultar no portal',closed:'Vaga encerrada',unavailable:'Fonte indisponível'};
+    return `<li><a href="${esc(url)}" target="_blank" rel="noopener noreferrer">${esc(source.name)} ↗</a> · ${labels[source.status] || 'Consultar no portal'}</li>`;
+  }).join('') : '';
+  const regionalPanel = regional ? `<section class="card"><h2>Fontes da região</h2><p>${esc(regionalStatus)}</p>${regionalLinks ? `<ul class="fine">${regionalLinks}</ul>` : ''}</section>` : '';
   const sourceStatus = sources.map(source => {
     const updated = source.updated_at && new Date(source.updated_at).toLocaleString('pt-BR');
     const status = source.refreshing ? 'atualizando' : source.partial ? 'atualização parcial' :
@@ -583,7 +600,7 @@ function renderDiscoveryResults(result, goToPage) {
       </div></article>`;
   }).join('');
   $('discoverResults').innerHTML = `
-    <section class="card"><h2>Resultados integrados</h2><details><summary>Atualização das fontes</summary><ul class="fine">${sourceStatus}</ul></details>
+    ${regionalPanel}<section class="card"><h2>Resultados integrados</h2><details><summary>Atualização das fontes</summary><ul class="fine">${sourceStatus}</ul></details>
     <p>${total ? `${total} vagas encontradas. Página ${page} de ${Math.ceil(total / pageSize)}.` :
       sources.some(source => source.refreshing) ? 'Carregando o catálogo. Os resultados aparecerão aqui.' :
       'Nenhuma vaga publicada nas fontes consultadas corresponde aos filtros. Você pode ajustar a cidade, o nível ou a compatibilidade com o perfil.'}</p>
