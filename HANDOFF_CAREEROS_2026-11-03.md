@@ -718,3 +718,37 @@ para confirmar a publicação desta continuação.
 - Painel não depende do histórico opcional da IA. Atualização desse histórico modifica somente seu bloco, preservando os campos do formulário.
 - Ao sair da busca, consultas HTTP e tentativas de atualização são canceladas.
 - Validação de 87 testes cloud e teste Node do ciclo de carregamento, incluído no CI. Não representa medição de latência real dos provedores em produção.
+
+
+## 29. Busca regional e aderência ao perfil — 5 de novembro
+
+Base desta continuação: main 315f034f8ddae21ab5632191e0c0716eb27e6bc0.
+Preservados o novo visual e os carregamentos das sessões anteriores.
+Corrigidas consultas dos agregadores que usavam sempre estágio em TI Brasil.
+Agora usam termos e cidade solicitados, com cache por consulta e concorrência
+limitada. Jooble separa alternativas por vírgulas (até oito), reaproveita tarefas
+e deixa de serializar todas as consultas em uma única trava.
+
+Fonte Inova Prudente adicionada pelo mural atualmente publicado, sem carregar
+páginas antigas indexadas como vagas abertas. Parser de cards com URLs fixas
+da origem, cache e timeout existentes. Teste real leu 56 cards publicados
+e encontrou Estágio em T.I. em Presidente Prudente com a lista de sete termos
+do usuário. Coleta inicial levou 7,68 s neste ambiente; consulta após a coleta
+levou 1,26 s. Esses números não são SLA nem teste em conta real em produção.
+
+Checkbox Somente vagas compatíveis com meu perfil consulta as informações do
+próprio usuário no backend. Regras locais filtram área, identificam habilidades
+e excluem níveis pleno/sênior quando os cargos-alvo indicam nível inicial.
+Estágios administrativos, contábeis e afins não passam apenas porque a empresa
+é de software. Sem habilidades, cargos ou formação, o filtro pede completar
+o perfil. Não transmite currículo ou contato aos agregadores e não chama IA.
+São regras explicáveis, não garantia de seleção ou de elegibilidade.
+
+Correspondência contempla T.I./TI e cidade com UF. Os agregadores precisam das
+credenciais já configuradas para cada provedor; não foram contratados serviços
+nem incluídas chaves. Os logs removem também credenciais dos URLs da Jooble.
+Branch de trabalho: codex/regional-search-2026-11-05. Consultar GitHub e Render
+para confirmar integração e publicação.
+
+Validação final desta etapa: 119 testes Python aprovados, sintaxe Node e teste
+Node do ciclo de carregamento aprovados. Não houve leitura de credenciais.
