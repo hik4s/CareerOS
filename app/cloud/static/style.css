@@ -108,3 +108,54 @@
 #discoverStatus:not(:empty){margin:16px 0;color:#626984}
 #discoverResults .job{margin-top:12px}
 @media(max-width:640px){.discover-form{grid-template-columns:1fr}.discover-form button{justify-self:stretch}}
+
+/* Shared visual treatment across the workspace. */
+:root{--purple:#6746d7;--muted:#59647e;--border:#e1e4f0}
+body{background:radial-gradient(ellipse at 85% 0,#e9e4fc70,transparent 42%),#f5f6fb}
+.shell>aside{background:radial-gradient(ellipse at 0 0,#46317c55,transparent 50%),linear-gradient(165deg,#181e39,#11172c)}
+.shell>aside .brand{letter-spacing:-.9px}
+.shell>aside nav a{color:#b4bdd4;transition:color .2s,background .2s,transform .2s,box-shadow .2s}
+.shell>aside nav a:hover{color:#fff;background:#ffffff0b;transform:translateX(3px)}
+.shell>aside nav a.active{background:linear-gradient(100deg,#8f72ed35,#8f72ed10);color:#e1d7ff}
+.shell>main>header{padding-bottom:22px;border-bottom:1px solid #e0e3ef}
+.shell>main>header h1{color:#222944;font-size:clamp(25px,2.5vw,32px)}
+.shell .eyebrow{color:#69728e}
+.shell :is(.card,.job,.metric){box-shadow:0 3px 15px #26305205;border-radius:17px}
+.shell .card{padding:26px}
+.shell .card h2{font-size:20px;letter-spacing:-.35px}
+.shell .section-head p,.shell .muted{color:#59647e;line-height:1.65;font-size:14px}
+.shell .hero{background:radial-gradient(ellipse at 95% 0,#dbd1ff,transparent 65%),linear-gradient(120deg,#eeebfc,#f1f3fb);border:1px solid #e1daf5;border-radius:20px}
+.shell .hero p{font-size:15px;color:#555d78}
+.shell .hero h2{font-size:clamp(25px,3vw,31px);line-height:1.25;color:#272341}
+.shell .hero .eyebrow{color:#6b51ae}
+.shell .job h3{font-size:18px;line-height:1.45}
+.shell .job p{color:#535e78;font-size:14px;line-height:1.65}
+.shell .job{padding:24px}
+.shell .badge{background:#efedf9;color:#5a4c80;border:1px solid #e6e0f3;padding:5px 9px;font-size:12px;line-height:1.4}
+.shell .score{font-size:13px;color:#50369a;background:#efebfb;padding:8px 11px;border-radius:10px}
+.shell .metric-label{color:#58627c;font-size:13px}
+.shell .metric small{color:#59647e;font-size:12px;line-height:1.65}
+.shell .fine{color:#616b83;font-size:13px;line-height:1.65}
+.shell .empty{padding:38px 20px;border:1px dashed #cec6e6;border-radius:16px;background:linear-gradient(135deg,#f8f6fd,#fff)}
+.shell .empty h3{font-size:19px;color:#30324d}
+.shell .empty p{font-size:14px;line-height:1.7;color:#5b6580}
+.shell :is(input,select,textarea){border-color:#d8ddeb;border-radius:11px;transition:border-color .18s,box-shadow .18s,background .18s}
+.shell :is(input,select,textarea):focus{border-color:#8a71d9;background:#fff;box-shadow:0 0 0 3px #7e5cdb12}
+.shell :is(button,.button),.job-details-dialog :is(button,.button){transition:background .18s,box-shadow .18s,transform .18s,opacity .18s}
+.shell :is(button,.button):not(.job-title-button):not(:disabled):hover,.job-details-dialog :is(button,.button):not(.job-title-button):not(:disabled):hover{box-shadow:0 4px 12px #3d276518}
+.shell :is(button,.button):not(:disabled):active,.job-details-dialog :is(button,.button):not(:disabled):active{transform:translateY(1px)}
+.shell button.small,.shell .button.small{font-size:13px;min-height:36px}
+.shell button.secondary,.shell .button.secondary{color:#573bb0;background:#eeebf8}
+.shell #loading{background:#f1edfc;color:#594885;border-color:#dcd2f3;font-size:14px}
+button[aria-busy=true]::before{content:"";width:14px;height:14px;flex:none;border:2px solid currentColor;border-right-color:transparent;border-radius:50%;animation:control-spin .7s linear infinite}
+#toast{font-size:14px;line-height:1.6;border:1px solid #ffffff18;box-shadow:0 12px 40px #18213b30;border-radius:14px}
+.job-details-dialog{box-shadow:0 22px 90px #11182a45}
+.job-details-dialog::backdrop{background:#11182a8a;backdrop-filter:blur(7px)}
+.auth-card{box-shadow:0 20px 70px #28204612}
+.auth-social button,.auth-primary{transition:transform .18s,box-shadow .18s,background .18s}
+.auth-social button:hover,.auth-primary:hover{box-shadow:0 6px 16px #37236c18;transform:translateY(-1px)}
+@media(min-width:761px){.shell>aside{position:sticky;top:0;height:100dvh;min-height:0;overflow-y:auto}.shell>aside .sidebar-bottom{padding-top:36px}.shell>aside .workspace-label{margin-top:36px}.shell>main{align-self:start}}
+@media(max-width:760px){.shell>aside{border-bottom:1px solid #ffffff10}.shell>aside nav{scrollbar-width:thin;scrollbar-color:#584578 transparent;scroll-snap-type:x proximity}.shell>aside nav a{scroll-snap-align:center}.shell>aside nav a:hover{transform:none}.shell .card{padding:21px}.shell .job{padding:20px}.shell>main>header{padding-bottom:16px}}
+@media(prefers-reduced-motion:no-preference){dialog[open]{animation:dialog-enter .24s cubic-bezier(.2,.75,.25,1)}dialog[open]::backdrop{animation:backdrop-enter .2s ease-out}@keyframes dialog-enter{from{opacity:0;transform:translateY(12px) scale(.985)}to{opacity:1;transform:none}}@keyframes backdrop-enter{from{opacity:0}to{opacity:1}}}
+@keyframes control-spin{to{transform:rotate(360deg)}}
+@media(prefers-reduced-motion:reduce){button[aria-busy=true]::before{animation:none}.shell>aside nav a:hover,.auth-social button:hover,.auth-primary:hover,.metric-link:hover{transform:none}}

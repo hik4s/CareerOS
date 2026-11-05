@@ -677,3 +677,15 @@ O progresso registra a presença dos dados básicos, currículo, oportunidades
 e ao menos uma análise. A validação local no Edge usou dados simulados para
 conta vazia, entrevistas, propostas, atalhos e largura responsiva. Conferir
 GitHub e Render para confirmar a publicação desta continuação.
+
+## 25. Refinamento visual em 05/11/2026
+
+A interface recebeu cores e contrastes consistentes, navegação lateral fixa
+em telas maiores, cartões e campos mais legíveis, feedback de carregamento
+nos botões e animações curtas na navegação, nos avisos e nas janelas. As
+transições respeitam a preferência de movimento reduzido. O foco de teclado
+e a identificação da página atual são mantidos.
+
+O teste no Edge com dados simulados verificou navegação, indicação de
+operação em andamento e renderização com movimento reduzido. Conferir
+GitHub e Render para confirmar a integração e o deploy desta continuação.
