@@ -442,6 +442,7 @@ function renderDiscovery() {
     <label>Distância da cidade<select name="radius_km"><option value="0">Sem raio</option><option value="10">Até 10 km</option><option value="25">Até 25 km</option><option value="50">Até 50 km</option><option value="100">Até 100 km</option></select><small>Com raio, informe uma cidade brasileira. Use cidade e UF se houver ambiguidade.</small></label>
     <label>Modalidade<select name="work_model"><option value="">Todas</option><option value="remote">Remoto</option><option value="hybrid">Híbrido</option><option value="onsite">Presencial</option></select></label>
     <label>Nível<select name="level"><option value="">Todos</option><option value="intern">Estágio ou aprendizagem</option><option value="trainee">Trainee</option><option value="junior">Júnior</option><option value="mid">Pleno</option><option value="senior">Sênior</option></select></label>
+    <label class="discover-check"><input type="checkbox" name="profile_only" checked> Somente vagas compatíveis com meu perfil</label>
     <label class="discover-check"><input type="checkbox" name="title_only"> Buscar palavras-chave somente no título</label>
     <button type="submit">Buscar vagas</button>
     <button type="button" id="clearDiscoveryFilters" class="secondary">Limpar filtros</button>
@@ -471,6 +472,7 @@ function renderDiscovery() {
   form.elements.work_model.value = draft.work_model ?? (draft.remote === 'true' ? 'remote' : '');
   form.elements.level.value = draft.level ?? '';
   form.elements.title_only.checked = draft.title_only === 'true';
+  form.elements.profile_only.checked = draft.profile_only !== 'false';
   const filters = () => ({
     q: form.elements.q.value.trim(),
     location: form.elements.location.value.trim(),
@@ -478,6 +480,7 @@ function renderDiscovery() {
     work_model: form.elements.work_model.value,
     level: form.elements.level.value,
     title_only: String(form.elements.title_only.checked),
+    profile_only: String(form.elements.profile_only.checked),
   });
   form.oninput = () => {
     state.draft = filters();
@@ -540,6 +543,7 @@ function renderDiscovery() {
   };
   if (typeof state.query === 'string') {
     const query = new URLSearchParams(state.query);
+    if (!query.has('profile_only')) query.set('profile_only', String(form.elements.profile_only.checked));
     if (Array.isArray(state.result?.jobs)) {
       renderDiscoveryResults(state.result, (page, button) => search(query, page, button));
     }
@@ -567,6 +571,7 @@ function renderDiscoveryResults(result, goToPage) {
       <div class="job-top"><div><h3><button type="button" class="job-title-button" data-discover-details="${index}">${esc(job.title)}</button></h3><p>${esc(job.company)} · ${esc(job.location || 'Local não informado')}</p></div>
       <span class="badge">${esc(job.source)}</span></div>
       ${job.work_model || job.remote ? `<span class="badge">${esc(workModelLabels[job.work_model] || 'Remoto')}</span>` : ''}
+      ${Array.isArray(job.fit_reasons) ? job.fit_reasons.map(reason => `<span class="badge">${esc(reason)}</span>`).join('') : ''}
       ${job.match_scope === 'title' ? '<span class="badge">Termos no título</span>' : ''}
       ${job.match_scope === 'details' ? '<span class="badge">Termos nos detalhes</span>' : ''}
       ${job.match_scope === 'provider' ? '<span class="badge">Sugestão da fonte</span>' : ''}
@@ -581,7 +586,7 @@ function renderDiscoveryResults(result, goToPage) {
     <section class="card"><h2>Resultados integrados</h2><details><summary>Atualização das fontes</summary><ul class="fine">${sourceStatus}</ul></details>
     <p>${total ? `${total} vagas encontradas. Página ${page} de ${Math.ceil(total / pageSize)}.` :
       sources.some(source => source.refreshing) ? 'Carregando o catálogo. Os resultados aparecerão aqui.' :
-      'Nenhuma vaga encontrada nas fontes disponíveis. Tente outros termos ou filtros.'}</p>
+      'Nenhuma vaga publicada nas fontes consultadas corresponde aos filtros. Você pode ajustar a cidade, o nível ou a compatibilidade com o perfil.'}</p>
     ${cards}<div class="job-actions">
       ${page > 1 ? '<button class="small secondary" id="discoverPrevious">Página anterior</button>' : ''}
       ${page * pageSize < total ? '<button class="small secondary" id="discoverNext">Próxima página</button>' : ''}

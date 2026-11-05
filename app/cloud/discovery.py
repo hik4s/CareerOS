@@ -23,6 +23,9 @@ import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from .auth import require_user
+from .store import SupabaseStore, get_store
+from .regional_jobs import InovaCards
+from .job_fit import career_fit
 from .proximity import city_center, nearest_distance
 
 router = APIRouter(prefix='/api/discovery', dependencies=[Depends(require_user)])
@@ -30,8 +33,9 @@ router = APIRouter(prefix='/api/discovery', dependencies=[Depends(require_user)]
 
 def redact_credential_urls(record):
     message = record.getMessage()
-    if 'serpapi.com/' in message and 'api_key=' in message:
+    if ('serpapi.com/' in message and 'api_key=' in message) or '/api/' in message and 'jooble.org' in message:
         record.msg = re.sub(r'([?&]api_key=)[^&\s"]+', r'\1[redacted]', message)
+        record.msg = re.sub(r'(jooble\.org/api/)[^?\s"]+', r'\1[redacted]', record.msg)
         record.args = ()
     return True
 
@@ -69,7 +73,7 @@ _refresh_tasks = {}
 _locks = {key: asyncio.Lock() for key in FEEDS}
 _locks.update({key: asyncio.Lock() for key in AGGREGATOR_FEEDS})
 _locks.update(gupy=asyncio.Lock(), careers=asyncio.Lock(), employer=asyncio.Lock(),
-              syndication=asyncio.Lock())
+              syndication=asyncio.Lock(), inova=asyncio.Lock())
 CAREER_TTL = 3600
 CAREER_LIMIT = 30
 
@@ -82,7 +86,7 @@ class Snapshot:
     updated_at: str | None
     partial: bool = False
 _jooble_cache = {}
-_jooble_lock = asyncio.Lock()
+_jooble_lock = asyncio.Semaphore(3)
 _jooble_tasks = {}
 JOOBLE_WAIT_SECONDS = 1.25
 
@@ -126,13 +130,16 @@ ALIASES = (
     ('junior', 'jr'), ('dados', 'data'), ('desenvolvedor', 'desenvolvedora', 'developer'),
     ('engenheiro', 'engenheira', 'engineer'), ('analista', 'analyst'),
     ('remoto', 'remota', 'remote'),
-    ('ti', 'tecnologia da informacao', 'information technology'),
+    ('ti', 't.i.', 't.i', 'tecnologia da informacao', 'information technology', 'informatica'),
+    ('programador', 'programadora', 'programmer'),
+    ('aprendiz', 'aprendizagem', 'apprentice'),
 )
 STOP_WORDS = {'a', 'as', 'o', 'os', 'de', 'da', 'do', 'das', 'dos', 'em', 'no', 'na', 'para', 'e'}
 
 
 @lru_cache(maxsize=512)
 def search_terms(value):
+    value = re.sub(r'(?<!\w)t\.i\.?(?!\w)', 'ti', folded(value))
     value = re.sub(r'\b(?:tecnologia da informacao|information technology)\b', 'ti', folded(value))
     words = re.findall(r'[\w+#.]+', folded(value))
     terms = dict.fromkeys(word.strip('.') for word in words if word.strip('.') not in STOP_WORDS | {''})
@@ -165,7 +172,14 @@ def matches_location(job, where, model):
         if BRAZIL.search(place):
             return True
         return model == 'remote' and bool(GLOBAL_REMOTE.search(place)) and not re.search(r'\b(?:only|somente)\b', place)
-    return not where or where in re.sub(r'\bbrazil\b', 'brasil', place)
+    if not where:
+        return True
+    origin = city_center(where)
+    if origin is not None:
+        distance = nearest_distance(origin, place)
+        if distance is not None:
+            return distance < .1
+    return where in re.sub(r'\bbrazil\b', 'brasil', place)
 
 
 def relevance(job, title, company, terms, *, title_only=False, provider_matched=False):
@@ -339,12 +353,12 @@ def portal_for_url(url):
     return next((name for name, domains in portals if domain_matches(host, domains)), None)
 
 
-async def jsearch_jobs(key, token):
+async def jsearch_jobs(key, token, query=None, location='Brasil'):
     publisher, domains = JSEARCH_PORTALS[key]
     rows = await fetch_rows(
         'GET', 'https://api.openwebninja.com/jsearch/search', 'data',
         headers={'x-api-key': token},
-        params={'query': f'estágio tecnologia da informação Brasil via {publisher}',
+        params={'query': f'{query or "estágio tecnologia da informação"} {location} via {publisher}',
                 'country': 'br', 'language': 'pt', 'date_posted': 'month'},
     )
     jobs = []
@@ -381,10 +395,10 @@ async def jsearch_jobs(key, token):
     return jobs
 
 
-async def aggregator_jobs(key, token):
+async def aggregator_jobs(key, token, query=None, location='Brasil'):
     if key in JSEARCH_PORTALS:
-        return await jsearch_jobs(key, token)
-    query = 'estágio tecnologia da informação Brasil'
+        return await jsearch_jobs(key, token, query, location)
+    query = (query or 'estágio tecnologia da informação') + ' ' + location
     if key == 'serpapi_google':
         rows = await fetch_rows('GET', 'https://serpapi.com/search.json', 'jobs_results',
                                 params={'engine': 'google_jobs', 'q': query, 'gl': 'br',
@@ -392,7 +406,7 @@ async def aggregator_jobs(key, token):
         provider, options_key = 'SerpApi', 'apply_options'
     else:
         engine = 'linkedin_jobs' if key == 'searchapi_linkedin' else 'google_jobs'
-        params = {'engine': engine, 'q': query, 'location': 'Brazil'}
+        params = {'engine': engine, 'q': query, 'location': location}
         if engine == 'google_jobs':
             params.update(gl='br', hl='pt')
         rows = await fetch_rows('GET', 'https://www.searchapi.io/api/v1/search', 'jobs',
@@ -672,7 +686,14 @@ async def get_feed(key, gupy_url='', gupy_token='', *, force=False):
             return cached.jobs, cached.available
         try:
             partial = False
-            if key in ('careers', 'employer'):
+            if key == 'inova':
+                markup = await fetch_content('GET', 'https://inovaprudente.com.br/vagas', accept='text/html')
+                parser = InovaCards()
+                parser.feed(markup.decode('utf-8', errors='replace'))
+                jobs = [job for row in parser.cards if (job := normalize(row, 'Inova Prudente', ''))]
+                if not jobs:
+                    raise ValueError('No published cards found')
+            elif key in ('careers', 'employer'):
                 jobs, partial = await career_jobs(*(ONJOB if key == 'careers' else employer_settings()),
                                                   previous=cached.jobs)
             elif key == 'syndication':
@@ -738,8 +759,8 @@ async def refresh_catalog():
     while True:
         await asyncio.sleep(CACHE_TTL)
         settings = gupy_settings()
-        tasks = [search_feed(key) for key in (*FEEDS, 'careers')]
-        tasks.extend(search_feed(key) for key, _ in enabled_aggregators())
+        tasks = [search_feed(key) for key in (*FEEDS, 'careers', 'inova')]
+        # Paid aggregators run only for the requested query, never a hard-coded background search.
         if employer_settings():
             tasks.append(search_feed('employer'))
         if syndication_settings():
@@ -760,7 +781,7 @@ async def discovery_lifespan(app):
         task.cancel()
         with suppress(asyncio.CancelledError):
             await task
-        pending = [*_refresh_tasks.values(), *_jooble_tasks.values()]
+        pending = [*_refresh_tasks.values(), *_jooble_tasks.values(), *_query_tasks.values()]
         for refresh in pending:
             refresh.cancel()
         await asyncio.gather(*pending, return_exceptions=True)
@@ -770,7 +791,7 @@ async def search_jooble(key, query, location, remote):
     keywords = f'{query} remoto' if remote else query
     location = location or 'Brasil'
     cache_key = (keywords.casefold(), location.casefold(), remote)
-    async with asyncio.timeout(12), _jooble_lock:
+    async with _jooble_lock, asyncio.timeout(12):
         cached = _jooble_cache.get(cache_key)
         if cached and time.monotonic() < cached[0]:
             return cached[1]
@@ -824,6 +845,63 @@ async def jooble_feed(key, query, location, remote):
     return *(cached[1] if cached else ([], False)), not task.done()
 
 
+_query_cache = {}
+_query_tasks = {}
+_query_slots = asyncio.Semaphore(3)
+
+
+async def query_aggregator(key, query, location, remote):
+    groups = list(dict.fromkeys(part.strip() for part in query.split(',') if part.strip()))[:8]
+    expression = ' OR '.join('(' + part.replace('"', '') + ')' for part in groups)
+    if len(groups) > 1:
+        expression = '(' + expression + ')'
+    if remote:
+        expression += ' remoto'
+    identity = (key, expression, location or 'Brasil')
+    cached = _query_cache.get(identity)
+    if cached and time.monotonic() < cached[0]:
+        return cached[1], cached[2], False
+    task = _query_tasks.get(identity)
+    if task is None:
+        if len(_query_tasks) >= 128:
+            return [], False, False
+
+        async def collect():
+            try:
+                async with _query_slots, asyncio.timeout(15):
+                    token = os.getenv(AGGREGATOR_FEEDS[key][1], '').strip()
+                    jobs = await aggregator_jobs(key, token, expression, location or 'Brasil')
+                result, ttl = (jobs, True), AGGREGATOR_TTL
+            except (httpx.HTTPError, TimeoutError, ValueError):
+                result, ttl = ([], False), 60
+            if len(_query_cache) >= 128:
+                _query_cache.pop(next(iter(_query_cache)))
+            _query_cache[identity] = (time.monotonic() + ttl, *result)
+            return result
+
+        task = asyncio.create_task(collect())
+        _query_tasks[identity] = task
+
+        def finished(done):
+            if _query_tasks.get(identity) is done:
+                _query_tasks.pop(identity, None)
+            if not done.cancelled():
+                done.exception()
+
+        task.add_done_callback(finished)
+    await asyncio.wait([task], timeout=JOOBLE_WAIT_SECONDS)
+    if task.done() and not task.cancelled() and task.exception() is None:
+        return *task.result(), False
+    return *(cached[1:] if cached else ([], False)), not task.done()
+
+
+async def jooble_alternatives(key, query, location, remote):
+    groups = list(dict.fromkeys(group.strip() for group in query.split(',') if group.strip()))[:8]
+    outcomes = await asyncio.gather(*(jooble_feed(key, group, location, remote) for group in groups))
+    return ([job for jobs, _, _ in outcomes for job in jobs],
+            all(ok for _, ok, _ in outcomes), any(pending for _, _, pending in outcomes))
+
+
 @router.get('/jobs')
 async def discover_jobs(q: str = Query('', max_length=120),
                         location: str = Query('', max_length=100),
@@ -832,7 +910,12 @@ async def discover_jobs(q: str = Query('', max_length=120),
                         title_only: bool = False,
                         radius_km: Annotated[int, Query(ge=0, le=100)] = 0,
                         work_model: Literal['', 'remote', 'hybrid', 'onsite'] = '',
-                        level: Literal['', 'intern', 'trainee', 'junior', 'mid', 'senior'] = ''):
+                        level: Literal['', 'intern', 'trainee', 'junior', 'mid', 'senior'] = '',
+                        profile_only: bool = False,
+                        store: SupabaseStore = Depends(get_store)):
+    profile = await store.profile() if profile_only else {}
+    if profile_only and not any(profile.get(key) for key in ('skills', 'target_roles', 'course')):
+        raise HTTPException(422, 'Preencha suas habilidades, cargos de interesse ou formação em Meu perfil para usar este filtro.')
     requested_model = work_model or ('remote' if remote else '')
     origin = city_center(folded(location)) if radius_km else None
     if radius_km and origin is None:
@@ -842,10 +925,13 @@ async def discover_jobs(q: str = Query('', max_length=120),
     keys = [*FEEDS, 'careers']
     names.append(ONJOB[0])
     requests.append(search_feed('careers'))
+    keys.append('inova')
+    names.append('Inova Prudente')
+    requests.append(search_feed('inova'))
     for key, source in enabled_aggregators():
         keys.append(key)
         names.append(source)
-        requests.append(search_feed(key))
+        requests.append(query_aggregator(key, q.strip(), location.strip(), requested_model == 'remote'))
     employer = employer_settings()
     if employer:
         keys.append('employer')
@@ -864,7 +950,8 @@ async def discover_jobs(q: str = Query('', max_length=120),
     jooble_key = os.getenv('CAREEROS_JOOBLE_BR_API_KEY', '').strip()
     if jooble_key and q.strip():
         names.append('Jooble')
-        requests.append(jooble_feed(jooble_key, q.strip(), location.strip(), requested_model == 'remote'))
+        keys.append('jooble')
+        requests.append(jooble_alternatives(jooble_key, q.strip(), location.strip(), requested_model == 'remote'))
     feeds = await asyncio.gather(*requests)
     alternatives = [terms for group in q.split(',') if (terms := search_terms(group))] or [[]]
     where = folded(location.strip())
@@ -892,6 +979,9 @@ async def discover_jobs(q: str = Query('', max_length=120),
                 continue
             if not radius_km and not matches_location(job, where, model):
                 continue
+            fits, reasons = career_fit(job, profile, q) if profile_only else (True, [])
+            if not fits:
+                continue
             match = best_match(job, alternatives, title_only=title_only,
                                provider_matched=name == 'Jooble' and not radius_km)
             if match is not None:
@@ -899,9 +989,9 @@ async def discover_jobs(q: str = Query('', max_length=120),
                 if origin is not None and (distance is None or distance > radius_km):
                     continue
                 score, scope = match
-                candidates.append((score, distance, status, job, model, scope))
+                candidates.append((score + len(reasons), distance, status, job, model, scope, reasons))
     results, seen = [], set()
-    for _, distance, status, job, model, scope in sorted(
+    for _, distance, status, job, model, scope, reasons in sorted(
         candidates, key=lambda item: (-item[0], item[1] or 0, -len(item[3]['description']))
     ):
         identities = tuple(duplicate_keys(job))
@@ -912,7 +1002,7 @@ async def discover_jobs(q: str = Query('', max_length=120),
         results.append({
             **{key: value for key, value in job.items() if key != 'search_text'},
             'work_model': model, 'remote': model == 'remote',
-            'match_scope': scope,
+            'match_scope': scope, 'fit_reasons': reasons,
             **({'distance_km': round(distance, 1)} if distance is not None else {}),
             'unconfirmed': not status['available'] and bool(status.get('updated_at')),
         })
