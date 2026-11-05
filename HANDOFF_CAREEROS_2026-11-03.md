@@ -702,3 +702,11 @@ A confirmação de e-mail conserva o estado de boas-vindas e o botão de acesso.
 O teste no Edge verificou os fragmentos, as fases visuais, o estado de
 confirmação e a saída com movimento reduzido. Consultar GitHub e Render
 para confirmar a publicação desta continuação.
+
+## 27. Carregamento interno das páginas — 5 de novembro
+- C compacto com fragmentos animados, cores da abertura e indicador de sincronização.
+- Primeiro carregamento mostra blocos de prévia da página; atualizações preservam o conteúdo disponível, sem espera artificial.
+- Estado de erro inicial permite tentar novamente; respostas antigas respeitam a geração de carregamento e a troca de conta.
+- Busca de vagas usa o mesmo indicador e mantém os resultados visíveis durante consultas.
+- Animações respeitam preferência de movimento reduzido. Cache de CSS/JS atualizado.
+- Verificação: 84 testes cloud com PYTHONUTF8=1, sintaxe Node, teste de ciclo de carregamento e prévia no Edge sem interface.

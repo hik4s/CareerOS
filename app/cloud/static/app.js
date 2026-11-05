@@ -6,6 +6,7 @@ const esc = v => String(v ?? '').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;',
 const stages={saved:'Salva',skip:'Não priorizar',new:'Nova',review:'Em análise',ready:'Pronta para candidatura',applied:'Candidatura enviada',interview:'Entrevista',offer:'Proposta',rejected:'Encerrada',archived:'Arquivada'};
 const titles={overview:'Visão geral',jobs:'Minhas vagas',discover:'Buscar vagas',profile:'Meu perfil',resumes:'Currículos',ai:'Assistente IA',capture:'Capturar vagas',data:'Meus dados'};
 let client,session,profile={},jobs=[],resumes=[],history=[],apiKey='',tab='overview',estimate=null,estimatePayload=null,aiResult='',loadGeneration=0;
+let workspaceReady=false, workspacePending=false, workspaceError=false;
 let aiDraft={provider:'heuristic',model:'',task:'evaluate',job_id:'',resume_id:'',instruction:'',previous_text:'',max_output_tokens:512,input_price_per_million:'',output_price_per_million:''};
 function toast(message, error = false) {
   const element = $('toast');
@@ -43,10 +44,24 @@ async function busy(button, action) {
 function empty(title,text){return `<div class="empty"><div class="empty-icon">◇</div><h3>${title}</h3><p>${text}</p></div>`}
 function safeURL(url){try{const u=new URL(url);return ['https:','http:'].includes(u.protocol)?u.href:''}catch{return ''}}
 function date(value){return value?new Date(value).toLocaleDateString('pt-BR'):''}
+function loadingMark() {
+  return '<span class="page-loading-mark" aria-hidden="true"><span>C</span><i></i><i></i><i></i><i></i></span>';
+}
+function pageLoading() {
+  const count = tab === 'overview' ? 4 : 3;
+  $('view').innerHTML = `<div class="page-skeleton" aria-hidden="true"><div class="skeleton-hero"><b></b><i></i><i></i></div><div class="skeleton-metrics">${Array.from({length:count},()=>'<div><i></i><b></b><i></i></div>').join('')}</div><div class="skeleton-panels">${Array.from({length:2},()=>'<div><b></b><i></i><i></i><i></i></div>').join('')}</div></div>`;
+}
+function workspaceLoadState() {
+  $('loading').classList.toggle('hidden', !workspacePending);
+  $('loading').innerHTML = `${loadingMark()}<div><strong>${workspaceReady ? 'Sincronizando seu espaço' : 'Preparando seu espaço'}</strong><span>${workspaceReady ? 'Seus dados continuam disponíveis durante a atualização.' : 'Organizando seus dados e próximos passos…'}</span></div><span class="loading-orbit" aria-hidden="true"></span>`;
+  $('view').setAttribute('aria-busy', String(workspacePending));
+}
 async function reload() {
   const generation = ++loadGeneration;
   const mutationGeneration = jobMutationGeneration;
-  $('loading').classList.remove('hidden');
+  workspacePending=true; workspaceError=false;
+  workspaceLoadState();
+  if (!workspaceReady) render();
   try {
     const data = await Promise.all([
       api('/api/profile'), api('/api/jobs'), api('/api/resumes'), api('/api/ai/history'),
@@ -61,15 +76,20 @@ async function reload() {
       }
       return job;
     });
+    workspaceReady=true;
     render();
   } catch (error) {
-    if (generation === loadGeneration) toast(error.message, true);
+    if (generation === loadGeneration) {
+      workspaceError=true;
+      if (!workspaceReady) render();
+      toast(error.message, true);
+    }
   } finally {
-    if (generation === loadGeneration) $('loading').classList.add('hidden');
+    if (generation === loadGeneration) {workspacePending=false; workspaceLoadState();}
   }
 }
 
-function clearAccount(){loadGeneration++;pendingJobUpdates.clear();jobStageChanges.clear();jobMutationGeneration++;jobFilters={query:'',stage:'',mode:'list'};apiKey='';profile={};jobs=[];resumes=[];history=[];estimate=null;estimatePayload=null;aiResult='';aiDraft={provider:'heuristic',model:'',task:'evaluate',job_id:'',resume_id:'',instruction:'',previous_text:'',max_output_tokens:512,input_price_per_million:'',output_price_per_million:''};$('view').replaceChildren();$('accountName').textContent='Minha conta';$('accountEmail').textContent='';$('avatar').textContent='C';$('jobForm').reset();$('jobDialog').close();$('jobDetailsDialog').close()}
+function clearAccount(){loadGeneration++;workspaceReady=false;workspacePending=false;workspaceError=false;workspaceLoadState();pendingJobUpdates.clear();jobStageChanges.clear();jobMutationGeneration++;jobFilters={query:'',stage:'',mode:'list'};apiKey='';profile={};jobs=[];resumes=[];history=[];estimate=null;estimatePayload=null;aiResult='';aiDraft={provider:'heuristic',model:'',task:'evaluate',job_id:'',resume_id:'',instruction:'',previous_text:'',max_output_tokens:512,input_price_per_million:'',output_price_per_million:''};$('view').replaceChildren();$('accountName').textContent='Minha conta';$('accountEmail').textContent='';$('avatar').textContent='C';$('jobForm').reset();$('jobDialog').close();$('jobDetailsDialog').close()}
 function showSession(next){if(next&&session?.user.id===next.user.id&&$('view').childElementCount){session=next;return}if(session?.user?.id!==next?.user?.id)clearAccount();session=next;const path=next?'/':'/auth';if(location.pathname!==path)window.history.replaceState(null,'',path+location.search+location.hash);$('gate').classList.toggle('hidden',!!next);$('shell').classList.toggle('hidden',!next);if(!next){clearAccount();return}const user=next.user;$('accountName').textContent=user.user_metadata?.full_name||user.email?.split('@')[0]||'Minha conta';$('accountEmail').textContent=user.email||'';$('avatar').textContent=($('accountName').textContent[0]||'C').toUpperCase();reload()}
 let lastAnimatedTab = null;
 function setTab() {
@@ -89,6 +109,13 @@ function render() {
     if (active) link.setAttribute('aria-current', 'page');
     else link.removeAttribute('aria-current');
   });
+  if (!workspaceReady) {
+    if (workspaceError) {
+      $('view').innerHTML='<div class="empty loading-error"><h3>Não foi possível carregar seu espaço</h3><p>Confira sua conexão e tente novamente.</p><button id="retryWorkspace">Tentar novamente</button></div>';
+      $('retryWorkspace').onclick=reload;
+    } else pageLoading();
+    return;
+  }
   ({overview: renderOverview, jobs: renderJobs, discover: renderDiscovery, profile: renderProfile,
     resumes: renderResumes, ai: renderAI, capture: renderCapture, data: renderData})[tab]();
   if (lastAnimatedTab !== tab && !matchMedia('(prefers-reduced-motion: reduce)').matches) {
@@ -468,7 +495,8 @@ function renderDiscovery() {
       state.query = query.toString();
       state.page = page;
       remember();
-      $('discoverStatus').textContent = 'Consultando fontes de vagas…';
+      $('discoverStatus').innerHTML = `<div class="search-loading">${loadingMark()}<div><strong>Conectando você às oportunidades</strong><span>Consultando as fontes com seus filtros…</span></div></div>`;
+      $('discoverResults').setAttribute('aria-busy', 'true');
       const submit = form.querySelector('[type="submit"]');
       submit.disabled = true;
       try {
@@ -485,7 +513,7 @@ function renderDiscovery() {
           retry = setTimeout(() => search(query, page, null, attempt + 1), 4000);
         }
       } finally {
-        if (form.isConnected) $('discoverStatus').textContent = '';
+        if (form.isConnected) {$('discoverStatus').textContent = ''; $('discoverResults').removeAttribute('aria-busy');}
         submit.disabled = false;
         searching = false;
       }
