@@ -1,0 +1,278 @@
+{
+  "collected_at": "2026-11-09T12:44:51.403988+00:00",
+  "scope": "Public catalogs only; all job families and seniority levels; Brazil inferred from provider metadata/location",
+  "sources": 32,
+  "available": 32,
+  "raw_listings": 4311,
+  "brazil_unique": 943,
+  "queries": [
+    {
+      "q": "estagio",
+      "matches": 16
+    },
+    {
+      "q": "estagio python",
+      "matches": 2
+    },
+    {
+      "q": "desenvolvedor python",
+      "matches": 110
+    },
+    {
+      "q": "frontend",
+      "matches": 23
+    },
+    {
+      "q": "backend",
+      "matches": 64
+    },
+    {
+      "q": "dados",
+      "matches": 464
+    },
+    {
+      "q": "suporte tecnico",
+      "matches": 168
+    }
+  ],
+  "per_source": [
+    {
+      "key": "quintoandar",
+      "available": true,
+      "partial": false,
+      "listings": 97
+    },
+    {
+      "key": "brex",
+      "available": true,
+      "partial": false,
+      "listings": 268
+    },
+    {
+      "key": "stone",
+      "available": true,
+      "partial": false,
+      "listings": 346
+    },
+    {
+      "key": "gympass",
+      "available": true,
+      "partial": false,
+      "listings": 80
+    },
+    {
+      "key": "vtex",
+      "available": true,
+      "partial": false,
+      "listings": 34
+    },
+    {
+      "key": "sumup",
+      "available": true,
+      "partial": false,
+      "listings": 342
+    },
+    {
+      "key": "wildlifestudios",
+      "available": true,
+      "partial": false,
+      "listings": 16
+    },
+    {
+      "key": "ebury",
+      "available": true,
+      "partial": false,
+      "listings": 161
+    },
+    {
+      "key": "rdstation",
+      "available": true,
+      "partial": false,
+      "listings": 6
+    },
+    {
+      "key": "ilia",
+      "available": true,
+      "partial": false,
+      "listings": 12
+    },
+    {
+      "key": "bancopan",
+      "available": true,
+      "partial": false,
+      "listings": 17
+    },
+    {
+      "key": "zupinnovation",
+      "available": true,
+      "partial": false,
+      "listings": 3
+    },
+    {
+      "key": "arbeitnow",
+      "available": true,
+      "partial": false,
+      "listings": 300
+    },
+    {
+      "key": "greenhouse_c6bank",
+      "available": true,
+      "partial": false,
+      "listings": 160
+    },
+    {
+      "key": "greenhouse_jusbrasil",
+      "available": true,
+      "partial": false,
+      "listings": 19
+    },
+    {
+      "key": "greenhouse_ebanx",
+      "available": true,
+      "partial": false,
+      "listings": 36
+    },
+    {
+      "key": "greenhouse_datadog",
+      "available": true,
+      "partial": false,
+      "listings": 404
+    },
+    {
+      "key": "greenhouse_cloudflare",
+      "available": true,
+      "partial": false,
+      "listings": 465
+    },
+    {
+      "key": "greenhouse_canonical",
+      "available": true,
+      "partial": false,
+      "listings": 316
+    },
+    {
+      "key": "greenhouse_mongodb",
+      "available": true,
+      "partial": false,
+      "listings": 375
+    },
+    {
+      "key": "greenhouse_thoughtworks",
+      "available": true,
+      "partial": false,
+      "listings": 44
+    },
+    {
+      "key": "lever_ciandt",
+      "available": true,
+      "partial": false,
+      "listings": 128
+    },
+    {
+      "key": "ashby_elevenlabs",
+      "available": true,
+      "partial": false,
+      "listings": 136
+    },
+    {
+      "key": "ashby_anyone-ai",
+      "available": true,
+      "partial": false,
+      "listings": 226
+    },
+    {
+      "key": "ashby_thatgamecompany",
+      "available": true,
+      "partial": false,
+      "listings": 41
+    },
+    {
+      "key": "ashby_connectly",
+      "available": true,
+      "partial": false,
+      "listings": 5
+    },
+    {
+      "key": "ashby_palmstreet",
+      "available": true,
+      "partial": false,
+      "listings": 7
+    },
+    {
+      "key": "ashby_whop",
+      "available": true,
+      "partial": false,
+      "listings": 41
+    },
+    {
+      "key": "ashby_commure",
+      "available": true,
+      "partial": false,
+      "listings": 76
+    },
+    {
+      "key": "ashby_darkroom",
+      "available": true,
+      "partial": false,
+      "listings": 42
+    },
+    {
+      "key": "ashby_tessera-labs",
+      "available": true,
+      "partial": false,
+      "listings": 35
+    },
+    {
+      "key": "ashby_ashby",
+      "available": true,
+      "partial": false,
+      "listings": 73
+    }
+  ],
+  "seconds": 10.14,
+  "comparison": {
+    "reference_commit": "19ed9670bd173a20a0e5d3a1b76fab0fe6f9e736",
+    "method": "Same collected snapshot: original 13 catalogs with old matching vs expanded public catalogs with new matching; no seniority/profile filters",
+    "baseline_sources": 13,
+    "baseline_raw": 1682,
+    "baseline_brazil_unique": 549,
+    "original_sources_new_geography_unique": 563,
+    "queries": [
+      {
+        "q": "estagio",
+        "before": 14,
+        "after": 16
+      },
+      {
+        "q": "estagio python",
+        "before": 2,
+        "after": 2
+      },
+      {
+        "q": "desenvolvedor python",
+        "before": 4,
+        "after": 110
+      },
+      {
+        "q": "frontend",
+        "before": 3,
+        "after": 23
+      },
+      {
+        "q": "backend",
+        "before": 18,
+        "after": 64
+      },
+      {
+        "q": "dados",
+        "before": 192,
+        "after": 464
+      },
+      {
+        "q": "suporte tecnico",
+        "before": 17,
+        "after": 168
+      }
+    ]
+  }
+}

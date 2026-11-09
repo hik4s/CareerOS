@@ -27,7 +27,8 @@ from .store import SupabaseStore, get_store
 from .regional_jobs import InovaCards
 from .job_fit import career_fit
 from . import source_discovery
-from .proximity import city_center, nearest_distance
+from .proximity import city_center, city_index, municipality_index, nearest_distance
+from .public_catalogs import SOURCES as PUBLIC_SOURCES, MAX_LISTINGS, collect_catalog
 
 router = APIRouter(prefix='/api/discovery', dependencies=[Depends(require_user)])
 
@@ -73,6 +74,8 @@ _cache = {}
 _refresh_tasks = {}
 _locks = {key: asyncio.Lock() for key in FEEDS}
 _locks.update({key: asyncio.Lock() for key in AGGREGATOR_FEEDS})
+_locks.update({key: asyncio.Lock() for key in PUBLIC_SOURCES})
+_fetch_slots = asyncio.Semaphore(6)
 _locks.update(gupy=asyncio.Lock(), careers=asyncio.Lock(), employer=asyncio.Lock(),
               syndication=asyncio.Lock(), inova=asyncio.Lock())
 CAREER_TTL = 3600
@@ -128,7 +131,10 @@ GLOBAL_REMOTE = re.compile(r'\b(?:worldwide|anywhere|global|mundial|latin americ
 EXCLUDES_BRAZIL = re.compile(r'\b(?:(?:excluding|except|exceto)\s+(?:brasil|brazil)|(?:brasil|brazil)\s+excluded)\b')
 ALIASES = (
     ('estagio', 'estagiario', 'estagiaria', 'intern', 'internship'),
-    ('junior', 'jr'), ('dados', 'data'), ('desenvolvedor', 'desenvolvedora', 'developer'),
+    ('junior', 'jr'), ('dados', 'data'),
+    ('desenvolvedor', 'desenvolvedora', 'developer', 'desenvolvimento', 'development', 'software engineer', 'engenheiro de software'),
+    ('frontend', 'front-end', 'front end'), ('backend', 'back-end', 'back end'),
+    ('fullstack', 'full-stack', 'full stack'), ('suporte', 'support'), ('tecnico', 'tecnica', 'technical'),
     ('engenheiro', 'engenheira', 'engineer'), ('analista', 'analyst'),
     ('remoto', 'remota', 'remote'),
     ('ti', 't.i.', 't.i', 'tecnologia da informacao', 'information technology', 'informatica'),
@@ -142,6 +148,9 @@ STOP_WORDS = {'a', 'as', 'o', 'os', 'de', 'da', 'do', 'das', 'dos', 'em', 'no', 
 def search_terms(value):
     value = re.sub(r'(?<!\w)t\.i\.?(?!\w)', 'ti', folded(value))
     value = re.sub(r'\b(?:tecnologia da informacao|information technology)\b', 'ti', folded(value))
+    for expression, replacement in [(r'\bfront[\s-]*end\b', 'frontend'), (r'\bback[\s-]*end\b', 'backend'),
+                                    (r'\bfull[\s-]*stack\b', 'fullstack')]:
+        value = re.sub(expression, replacement, value)
     words = re.findall(r'[\w+#.]+', folded(value))
     terms = dict.fromkeys(word.strip('.') for word in words if word.strip('.') not in STOP_WORDS | {''})
     return [re.compile(r'(?<!\w)(?:' + '|'.join(re.escape(alias) for alias in
@@ -170,7 +179,10 @@ def matches_location(job, where, model):
             return False
         if model == 'remote' and regions:
             return bool(BRAZIL.search(regions) or GLOBAL_REMOTE.search(regions))
-        if BRAZIL.search(place):
+        country = job.get('country_code', '').upper()
+        if country and country not in ('BR', 'BRA'):
+            return model == 'remote' and bool(GLOBAL_REMOTE.search(place)) and not re.search(r'\b(?:only|somente)\b', place)
+        if job.get('country_code', '').upper() in ('BR', 'BRA') or brazilian_location(place):
             return True
         return model == 'remote' and bool(GLOBAL_REMOTE.search(place)) and not re.search(r'\b(?:only|somente)\b', place)
     if not where:
@@ -181,6 +193,45 @@ def matches_location(job, where, model):
         if distance is not None:
             return distance < .1
     return where in re.sub(r'\bbrazil\b', 'brasil', place)
+
+
+@lru_cache(maxsize=1)
+def brazilian_states():
+    return ({state for entries in city_index().values() for state, _, _ in entries},
+            {name for entries in city_index().values() for _, name, _ in entries})
+
+
+@lru_cache(maxsize=4096)
+def brazilian_location(place):
+    # Resolve locations with the city catalog, then use state names/suffixes for small towns.
+    foreign = re.compile(r'\b(?:us|usa|uk|united states|united kingdom|portugal|germany|argentina|canada|mexico)\b')
+    states, state_names = brazilian_states()
+    for location in re.split(r'\s*[;|]\s*', place):
+        if foreign.search(location):
+            continue
+        if BRAZIL.search(location):
+            return True
+        parts = re.split(r'\s*,\s*|\s+-\s+', location.strip())
+        known_states = municipality_index().get(parts[0], set())
+        if known_states and (len(parts) == 1 or any(part in known_states for part in parts[1:])):
+            return True
+        if any(part in state_names for part in parts):
+            return True
+    return False
+
+
+def matches_level(job, level):
+    return bool(LEVELS[level].search(folded(job['title'] + ' ' + job.get('employment_type', ''))))
+
+
+def publication_timestamp(value):
+    try:
+        parsed = datetime.fromisoformat(value.replace('Z', '+00:00'))
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        return min(parsed.timestamp(), datetime.now(timezone.utc).timestamp())
+    except (ValueError, TypeError, AttributeError, OverflowError, OSError):
+        return 0
 
 
 def relevance(job, title, company, terms, *, title_only=False, provider_matched=False):
@@ -281,8 +332,12 @@ def normalize(row, source, company):
         'description': description,
         'work_model': clean(row.get('work_model'), 20),
         'applicant_regions': clean(row.get('applicant_regions'), 500),
-        'valid_through': clean(row.get('valid_through'), 50),
-        'search_text': folded(' '.join((title, company, keywords, description))),
+        'valid_through': clean(row.get('valid_through') or row.get('application_deadline'), 50),
+        'country_code': clean(row.get('country_code'), 3),
+        'employment_type': clean(row.get('employment_type'), 100),
+        'published_at': clean(row.get('published_at') or row.get('first_published'), 50),
+        'apply_url': safe_listing_url(row.get('apply_url')),
+        'search_text': folded(' '.join((title, company, keywords, description, clean(row.get('employment_type'), 100)))),
     }
 
 
@@ -317,11 +372,12 @@ def gupy_jobs(companies):
                 yield job
 
 
-async def fetch_content(method, url, *, accept, authorization='', client=None, headers=None, **options):
+async def fetch_content(method, url, *, accept, authorization='', client=None, headers=None,
+                        max_bytes=MAX_FEED_BYTES, **options):
     headers = {'Accept': accept, 'User-Agent': 'CareerOS', **(headers or {})}
     if authorization:
         headers['Authorization'] = authorization
-    async with asyncio.timeout(10), AsyncExitStack() as stack:
+    async with _fetch_slots, asyncio.timeout(10), AsyncExitStack() as stack:
         if client is None:
             connection = await asyncio.to_thread(httpx.AsyncClient, timeout=8, follow_redirects=False)
             client = await stack.enter_async_context(connection)
@@ -329,7 +385,7 @@ async def fetch_content(method, url, *, accept, authorization='', client=None, h
             response.raise_for_status()
             content = bytearray()
             async for chunk in response.aiter_bytes():
-                if len(content) + len(chunk) > MAX_FEED_BYTES:
+                if len(content) + len(chunk) > max_bytes:
                     raise ValueError('Feed too large')
                 content.extend(chunk)
     return content
@@ -694,6 +750,16 @@ async def get_feed(key, gupy_url='', gupy_token='', *, force=False):
                 jobs = [job for row in parser.cards if (job := normalize(row, 'Inova Prudente', ''))]
                 if not jobs:
                     raise ValueError('No published cards found')
+            elif key in PUBLIC_SOURCES:
+                jobs, partial = await collect_catalog(PUBLIC_SOURCES[key], fetch_content, normalize)
+                if partial:
+                    # A truncated/failed later page cannot prove cached unseen postings closed.
+                    merged = {job['url']:job for job in jobs}
+                    for job in cached.jobs:
+                        if len(merged) >= MAX_LISTINGS:
+                            break
+                        merged.setdefault(job['url'], job)
+                    jobs = list(merged.values())
             elif key in ('careers', 'employer'):
                 jobs, partial = await career_jobs(*(ONJOB if key == 'careers' else employer_settings()),
                                                   previous=cached.jobs)
@@ -760,7 +826,7 @@ async def refresh_catalog():
     while True:
         await asyncio.sleep(CACHE_TTL)
         settings = gupy_settings()
-        tasks = [search_feed(key) for key in (*FEEDS, 'careers', 'inova')]
+        tasks = [search_feed(key) for key in (*FEEDS, *PUBLIC_SOURCES, 'careers', 'inova')]
         # Paid aggregators run only for the requested query, never a hard-coded background search.
         if employer_settings():
             tasks.append(search_feed('employer'))
@@ -925,7 +991,9 @@ async def discover_jobs(q: str = Query('', max_length=120),
         raise HTTPException(422, 'Para buscar por distância, informe uma cidade brasileira reconhecida. Use cidade e UF se houver ambiguidade.')
     names = [feed[0] for feed in FEEDS.values()]
     requests = [search_feed(key) for key in FEEDS]
-    keys = [*FEEDS, 'careers']
+    names.extend(source['name'] + ' · ' + source['provider'].title() for source in PUBLIC_SOURCES.values())
+    requests.extend(search_feed(key) for key in PUBLIC_SOURCES)
+    keys = [*FEEDS, *PUBLIC_SOURCES, 'careers']
     names.append(ONJOB[0])
     requests.append(search_feed('careers'))
     keys.append('inova')
@@ -984,7 +1052,7 @@ async def discover_jobs(q: str = Query('', max_length=120),
             model = infer_work_model(job)
             if requested_model and model != requested_model:
                 continue
-            if level and not LEVELS[level].search(folded(job['title'])):
+            if level and not matches_level(job, level):
                 continue
             if not radius_km and not matches_location(job, where, model):
                 continue
@@ -1001,7 +1069,8 @@ async def discover_jobs(q: str = Query('', max_length=120),
                 candidates.append((score + len(reasons), distance, status, job, model, scope, reasons))
     results, seen = [], set()
     for _, distance, status, job, model, scope, reasons in sorted(
-        candidates, key=lambda item: (-item[0], item[1] or 0, -len(item[3]['description']))
+        candidates, key=lambda item: (-item[0], item[1] or 0, -publication_timestamp(item[3].get('published_at')),
+                                      -len(item[3]['description']))
     ):
         identities = tuple(duplicate_keys(job))
         if seen.intersection(identities):
@@ -1020,5 +1089,9 @@ async def discover_jobs(q: str = Query('', max_length=120),
     # Older tabs still call portals.map() on this response.
     return {'jobs': results[offset:offset + PAGE_SIZE], 'total': len(results), 'portals': [],
             'page': page, 'page_size': PAGE_SIZE, 'sources': sources,
+            'search_summary': {'catalog_listings': sum(len(jobs) for jobs, _, _ in feeds),
+                               'sources_consulted': len(feeds),
+                               'sources_available': sum(bool(ok) for _, ok, _ in feeds),
+                               'sources_refreshing': sum(bool(refreshing) for _, _, refreshing in feeds)},
             'regional_discovery': {'city': location.strip(), 'refreshing': regional_pending,
                                    'reason': regional.reason, 'sources': regional.sources}}

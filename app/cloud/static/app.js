@@ -437,7 +437,7 @@ function renderDiscovery() {
     <p>Pesquise, leia as descrições e salve oportunidades em Minhas vagas.</p>
   </div>
   <div class="card"><form id="discoverForm" class="discover-form">
-    <label>Cargo ou palavra-chave<input name="q" maxlength="120" placeholder="Ex.: estágio Python, estágio em TI"><small>Use vírgulas para separar alternativas. Palavras sem vírgula são buscadas juntas.</small></label>
+    <label>Cargo ou palavra-chave<input name="q" maxlength="120" placeholder="Ex.: estágio Python, estágio em TI"><small>Use vírgulas para separar alternativas. Cargos equivalentes em português e inglês são reconhecidos; as palavras de cada grupo continuam sendo exigidas.</small></label>
     <label>Cidade, região ou país<input name="location" maxlength="100" placeholder="Ex.: São Paulo"></label>
     <label>Distância da cidade<select name="radius_km"><option value="0">Sem raio</option><option value="10">Até 10 km</option><option value="25">Até 25 km</option><option value="50">Até 50 km</option><option value="100">Até 100 km</option></select><small>Com raio, informe uma cidade brasileira. Use cidade e UF se houver ambiguidade.</small></label>
     <label>Modalidade<select name="work_model"><option value="">Todas</option><option value="remote">Remoto</option><option value="hybrid">Híbrido</option><option value="onsite">Presencial</option></select></label>
@@ -583,6 +583,8 @@ function renderDiscoveryResults(result, goToPage) {
   const cards = found.map((job, index) => {
     const url = safeURL(job.url);
     if (!url) return '';
+    const applyURL = safeURL(job.apply_url) || url;
+    const published = job.published_at && Number.isFinite(Date.parse(job.published_at)) ? new Date(job.published_at).toLocaleDateString('pt-BR') : '';
     const saved = jobs.some(item => item.url === job.url);
     return `<article class="job">
       <div class="job-top"><div><h3><button type="button" class="job-title-button" data-discover-details="${index}">${esc(job.title)}</button></h3><p>${esc(job.company)} · ${esc(job.location || 'Local não informado')}</p></div>
@@ -594,13 +596,15 @@ function renderDiscoveryResults(result, goToPage) {
       ${job.match_scope === 'provider' ? '<span class="badge">Sugestão da fonte</span>' : ''}
       ${Number.isFinite(job.distance_km) ? `<span class="badge">≈ ${job.distance_km.toLocaleString('pt-BR')} km</span>` : ''}
       ${job.unconfirmed ? '<span class="badge">Abertura ainda não reconfirmada</span>' : ''}
+      ${published ? `<span class="badge">Publicação informada: ${esc(published)}</span>` : ''}
       <div class="job-actions">
-        <a class="button secondary small" href="${esc(url)}" target="_blank" rel="noopener noreferrer">Candidatar-se no site da vaga ↗</a>
+        <a class="button secondary small" href="${esc(applyURL)}" target="_blank" rel="noopener noreferrer">Candidatar-se no site da vaga ↗</a>
         <button class="small" type="button" data-discover-save="${index}" data-url="${esc(job.url)}" ${saved ? 'disabled' : ''}>${saved ? 'Já salva' : 'Revisar e salvar'}</button>
       </div></article>`;
   }).join('');
   $('discoverResults').innerHTML = `
     ${regionalPanel}<section class="card"><h2>Resultados integrados</h2><details><summary>Atualização das fontes</summary><ul class="fine">${sourceStatus}</ul></details>
+    ${Number.isInteger(result.search_summary?.catalog_listings) ? `<p class="fine">${result.search_summary.catalog_listings.toLocaleString('pt-BR')} anúncios nos catálogos consultados · ${result.search_summary.sources_available} de ${result.search_summary.sources_consulted} fontes disponíveis${result.search_summary.sources_refreshing ? ' · coleta em andamento' : ''}. Os resultados abaixo aplicam seus filtros e removem duplicatas.</p>` : ''}
     <p>${total ? `${total} vagas encontradas. Página ${page} de ${Math.ceil(total / pageSize)}.` :
       sources.some(source => source.refreshing) ? 'Carregando o catálogo. Os resultados aparecerão aqui.' :
       'Nenhuma vaga publicada nas fontes consultadas corresponde aos filtros. Você pode ajustar a cidade, o nível ou a compatibilidade com o perfil.'}</p>

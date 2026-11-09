@@ -31,6 +31,14 @@ def route_request(route):
         route.fulfill(json=saved[-1])
     elif path == '/api/profile':
         route.fulfill(json=saved[-1] if saved else {})
+    elif path == '/api/discovery/jobs':
+        assert 'profile_only=false' in request.url
+        route.fulfill(json={'jobs':[
+            {'title':'Frontend Developer','company':'Demo','location':'Brasil','url':'https://jobs.example/1',
+             'apply_url':'https://jobs.example/1/apply','published_at':'2026-11-01T00:00:00Z','source':'Demo · Ashby'},
+            {'title':'Frontend Developer','company':'Demo','location':'Brasil','url':'https://jobs.example/2',
+             'apply_url':'javascript:alert(1)','source':'Demo · Lever'}],
+            'total':2,'sources':[], 'search_summary':{'catalog_listings':100,'sources_available':2,'sources_consulted':3,'sources_refreshing':0}})
     else:
         route.fulfill(json=[])
 
@@ -73,7 +81,7 @@ with sync_playwright() as p:
     # A pending preview from a previous account must not enter the next account's form.
     page.evaluate("""() => {
       resumes=[{id:'old',filename:'old.docx'}];renderProfile();
-      api=()=>new Promise(resolve=>window.finishOldPreview=resolve);
+      window.originalApi=api;api=()=>new Promise(resolve=>window.finishOldPreview=resolve);
     }""")
     page.get_by_role('button', name='Usar este currículo', exact=True).click()
     page.evaluate("""() => {
@@ -82,5 +90,15 @@ with sync_playwright() as p:
     }""")
     expect(page.locator('#profileImportPreview')).to_be_empty()
     expect(page.locator('[name="full_name"]')).to_have_value('Outra conta')
+    page.evaluate("""() => { api=window.originalApi;profile={};tab='discover';renderDiscovery(); }""")
+    expect(page.locator('[name="profile_only"]')).not_to_be_checked()
+    page.locator('[name="q"]').fill('frontend')
+    page.get_by_role('button', name='Buscar vagas', exact=True).click()
+    expect(page.locator('#discoverResults')).to_contain_text('100 anúncios nos catálogos consultados')
+    expect(page.locator('#discoverResults')).to_contain_text('Publicação informada')
+    links=page.get_by_role('link', name='Candidatar-se no site da vaga')
+    expect(links.nth(0)).to_have_attribute('href','https://jobs.example/1/apply')
+    expect(links.nth(1)).to_have_attribute('href','https://jobs.example/2')
+    assert page.evaluate('document.documentElement.scrollWidth <= innerWidth'), 'Search mobile overflow'
     browser.close()
-print('PASS Edge mobile: import, review, preservation, explicit save, no overflow, stale account response ignored')
+print('PASS Edge mobile: profile import/review/save, stale account ignored; search without profile, source counts, dates, safe application links, no overflow')

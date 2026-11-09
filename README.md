@@ -26,6 +26,7 @@ O CareerOS reúne oportunidades, perfil profissional, currículos e acompanhamen
 - Preenchimento do perfil a partir de currículo PDF/DOCX, com prévia e seleção dos campos antes de salvar.
 - Captura da página de uma vaga pela extensão, com revisão antes de salvar.
 - Busca por termos, localização, modalidade e nível, com paginação, deduplicação e informação sobre o estado das fontes.
+- Busca em 32 catálogos públicos fixos, com conectores Greenhouse/Lever/Ashby e reconhecimento ampliado de municípios e cargos equivalentes.
 - Filtro aproximado por distância entre centros de cidades brasileiras.
 - Descoberta regional opcional de fontes por cidade, com cache e limites de coleta.
 - Upload e leitura de currículos PDF/DOCX, análise por regras e comparação com vagas.

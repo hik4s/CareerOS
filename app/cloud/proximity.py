@@ -28,6 +28,16 @@ def city_center(location):
     return matches[0] if len(matches) == 1 else None
 
 
+@lru_cache(maxsize=1)
+def municipality_index():
+    """Names/UF from IBGE; separate from the smaller coordinate dataset used for radius."""
+    cities = defaultdict(set)
+    with Path(__file__).with_name('brazil_municipalities.csv').open(encoding='utf-8', newline='') as file:
+        for city, state in csv.reader(file):
+            cities[city].add(state)
+    return cities
+
+
 def distance_km(origin, destination):
     lat1, lon1 = map(radians, origin)
     lat2, lon2 = map(radians, destination)
