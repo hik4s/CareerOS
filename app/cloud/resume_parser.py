@@ -39,7 +39,8 @@ def main():
         if len(data) > 5 * 1024 * 1024:
             raise ValueError('Arquivo muito grande.')
         result = extract(data, sys.argv[1])
-        print(json.dumps({'text': result}, ensure_ascii=False))
+        # Pipes use the Windows code page by default; the parent expects UTF-8 JSON.
+        sys.stdout.buffer.write(json.dumps({'text': result}, ensure_ascii=False).encode('utf-8'))
     except Exception:
         # Never echo file contents or parser internals into the API/log output.
         print(json.dumps({'error': 'Não foi possível extrair o texto dentro dos limites de processamento.'}))

@@ -1,5 +1,10 @@
 # Busca de vagas no CareerOS
 
+O perfil é opcional para pesquisar. Se “Somente vagas compatíveis com meu perfil”
+estiver marcado e ainda não houver habilidades, cargos de interesse ou formação,
+a busca continua com os termos e filtros informados, sem personalização por perfil.
+Com dados no perfil, o filtro mantém a avaliação de compatibilidade existente.
+
 Em **Buscar vagas**, use palavras-chave, localização, modalidade e nível.
 Para remoto no Brasil, combine a modalidade **Remoto** com **Brasil** na
 localização. Vagas remotas sem região informada ficam disponíveis sem esse
@@ -28,6 +33,39 @@ a variante brasileira não está disponível. [Documentação do tradutor](https
 O link de candidatura abre a página da vaga no site de origem.
 
 ## Cobertura
+
+A ampliação de 09/11/2026 adiciona 19 catálogos de empresas em Greenhouse, Lever
+e Ashby aos 13 catálogos fixos anteriores. O cadastro versionado está em
+[`job_sources.json`](../app/cloud/job_sources.json). Inclui CI&T, C6 Bank,
+Jusbrasil, EBANX, Thoughtworks, MongoDB, Datadog, Cloudflare e outros.
+Esses catálogos públicos não exigem chaves de agregadores. Disponibilidade e
+quantidade variam com as publicações de cada empresa. OnJob, Inova Prudente,
+fontes regionais e integrações opcionais permanecem separados dessa contagem.
+
+Variações de cargo em português/inglês e de grafia são reconhecidas, como
+desenvolvedor/software engineer, desenvolvimento/developer e front-end/frontend.
+As demais palavras pedidas continuam obrigatórias no grupo; vírgulas continuam
+separando alternativas. Metadados explícitos de estágio também entram na busca.
+Em empates de relevância e distância, a publicação informada pela fonte vem antes
+do tamanho da descrição. Datas ausentes não são inventadas.
+
+O filtro Brasil considera país informado pelo provedor e uma base de municípios/UF
+do IBGE. A base de coordenadas usada no raio continua sendo a do GeoNames; nem todo
+município do novo cadastro tem coordenadas disponíveis. País estrangeiro explícito
+e restrições de elegibilidade remota permanecem respeitados.
+
+Lever usa paginação limitada a dez páginas de cem anúncios. Os outros novos
+catálogos têm limite de mil anúncios por empresa. Uma coleta parcial preserva
+anúncios do cache ainda não reconfirmados, dentro desse limite; a interface informa
+a atualização parcial. Há no máximo seis requisições HTTP de catálogo simultâneas.
+O limite geral é 5 MiB por resposta; os novos catálogos Greenhouse usam até 10 MiB
+porque o endpoint inclui descrições completas. Cotas e limites continuam explícitos.
+
+Resultados mostram o total bruto nos catálogos consultados, separado das vagas
+únicas após os filtros. Quando há URL de candidatura informada pelo provedor, o
+botão leva ao formulário correspondente. Isso não envia candidatura automaticamente.
+
+Medições e limitações: [ampliação do motor](SEARCH_ENGINE_2026-11-09.md).
 
 - Greenhouse de Grupo QuintoAndar, Brex, Stone, Wellhub, VTEX, SumUp,
   Wildlife Studios, Ebury, RD Station, ília, Banco PAN e Zup Innovation.

@@ -19,8 +19,9 @@ jobs:
         with:
           node-version: '22'
       - run: pip install -r requirements-cloud.txt pytest
-      - run: python -m pytest -q tests/test_cloud*.py
+      - run: python -m pytest -q tests/test_cloud*.py tests/test_regional_search.py tests/test_source_discovery.py
       - run: python -m compileall -q app/cloud
       - run: node --check extension-cloud/background.js && node --check extension-cloud/popup.js && node --check extension-cloud/origin.js
       - run: node --check app/cloud/static/app.js && node --check app/cloud/static/vendor/supabase.js
       - run: node scripts/test_cloud_loading.cjs
+      - run: node scripts/test_profile_import.cjs
