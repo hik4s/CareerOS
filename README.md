@@ -23,6 +23,7 @@ O CareerOS reúne oportunidades, perfil profissional, currículos e acompanhamen
 ## O que o MVP implementa
 
 - Perfil profissional estruturado, cadastro de vagas e acompanhamento de status.
+- Preenchimento do perfil a partir de currículo PDF/DOCX, com prévia e seleção dos campos antes de salvar.
 - Captura da página de uma vaga pela extensão, com revisão antes de salvar.
 - Busca por termos, localização, modalidade e nível, com paginação, deduplicação e informação sobre o estado das fontes.
 - Filtro aproximado por distância entre centros de cidades brasileiras.

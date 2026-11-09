@@ -1,5 +1,10 @@
 # Busca de vagas no CareerOS
 
+O perfil é opcional para pesquisar. Se “Somente vagas compatíveis com meu perfil”
+estiver marcado e ainda não houver habilidades, cargos de interesse ou formação,
+a busca continua com os termos e filtros informados, sem personalização por perfil.
+Com dados no perfil, o filtro mantém a avaliação de compatibilidade existente.
+
 Em **Buscar vagas**, use palavras-chave, localização, modalidade e nível.
 Para remoto no Brasil, combine a modalidade **Remoto** com **Brasil** na
 localização. Vagas remotas sem região informada ficam disponíveis sem esse

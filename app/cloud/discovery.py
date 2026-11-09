@@ -915,8 +915,10 @@ async def discover_jobs(q: str = Query('', max_length=120),
                         profile_only: bool = False,
                         store: SupabaseStore = Depends(get_store)):
     profile = await store.profile() if profile_only else {}
-    if profile_only and not any(profile.get(key) for key in ('skills', 'target_roles', 'course')):
-        raise HTTPException(422, 'Preencha suas habilidades, cargos de interesse ou formação em Meu perfil para usar este filtro.')
+    # An optional personalization filter must never prevent a new account from searching.
+    profile_only = profile_only and bool(
+        (profile.get('course') or '').strip()
+        or any(str(value).strip() for key in ('skills', 'target_roles') for value in (profile.get(key) or [])))
     requested_model = work_model or ('remote' if remote else '')
     origin = city_center(folded(location)) if radius_km else None
     if radius_km and origin is None:

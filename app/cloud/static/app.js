@@ -442,7 +442,7 @@ function renderDiscovery() {
     <label>Distância da cidade<select name="radius_km"><option value="0">Sem raio</option><option value="10">Até 10 km</option><option value="25">Até 25 km</option><option value="50">Até 50 km</option><option value="100">Até 100 km</option></select><small>Com raio, informe uma cidade brasileira. Use cidade e UF se houver ambiguidade.</small></label>
     <label>Modalidade<select name="work_model"><option value="">Todas</option><option value="remote">Remoto</option><option value="hybrid">Híbrido</option><option value="onsite">Presencial</option></select></label>
     <label>Nível<select name="level"><option value="">Todos</option><option value="intern">Estágio ou aprendizagem</option><option value="trainee">Trainee</option><option value="junior">Júnior</option><option value="mid">Pleno</option><option value="senior">Sênior</option></select></label>
-    <label class="discover-check"><input type="checkbox" name="profile_only" checked> Somente vagas compatíveis com meu perfil</label>
+    <label class="discover-check"><input type="checkbox" name="profile_only"> Somente vagas compatíveis com meu perfil (opcional)</label>
     <label class="discover-check"><input type="checkbox" name="title_only"> Buscar palavras-chave somente no título</label>
     <button type="submit">Buscar vagas</button>
     <button type="button" id="clearDiscoveryFilters" class="secondary">Limpar filtros</button>
@@ -472,7 +472,7 @@ function renderDiscovery() {
   form.elements.work_model.value = draft.work_model ?? (draft.remote === 'true' ? 'remote' : '');
   form.elements.level.value = draft.level ?? '';
   form.elements.title_only.checked = draft.title_only === 'true';
-  form.elements.profile_only.checked = draft.profile_only !== 'false';
+  form.elements.profile_only.checked = Boolean((profile.course || '').trim() || [...(profile.skills || []), ...(profile.target_roles || [])].some(value => String(value).trim())) && draft.profile_only !== 'false';
   const filters = () => ({
     q: form.elements.q.value.trim(),
     location: form.elements.location.value.trim(),
@@ -850,6 +850,19 @@ async function resizeProfilePhoto(file) {
   }
 }
 
+function applyProfileSuggestions(form, suggestions, selected, baseline = {}) {
+  const allowed = ['full_name','email','phone','city','course','term','graduation_date','linkedin','github','summary','target_roles','skills'];
+  const applied = [];
+  for (const key of selected) {
+    if (!allowed.includes(key) || !Object.hasOwn(suggestions, key)) continue;
+    const field = form.elements.namedItem(key);
+    if (!field || (Object.hasOwn(baseline, key) && field.value !== baseline[key])) continue;
+    field.value = Array.isArray(suggestions[key]) ? suggestions[key].join(', ') : String(suggestions[key]);
+    applied.push(key);
+  }
+  return applied;
+}
+
 function renderProfile(){const fields=[['full_name','Nome completo'],['email','E-mail'],['phone','Telefone'],['city','Cidade'],['course','Curso'],['term','Semestre / termo'],['graduation_date','Previsão de conclusão'],['linkedin','LinkedIn'],['github','GitHub']];
 const owner = session?.user.id;
 let avatar = profilePhoto(profile.avatar);
@@ -866,8 +879,10 @@ const status = sections.filter(([, filled]) => filled).length;
 $('view').innerHTML=`<div class="card"><div class="section-head"><div><h2>Meu perfil</h2><p>Use informações reais. Este perfil orienta a análise de vagas e os textos assistidos.</p></div></div><div class="profile-overview"><div id="profileAvatar" class="profile-avatar"></div><div><h3>${esc(profile.full_name || 'Minha conta')}</h3><p>${esc(session?.user.email || '')}</p><p>${status} de ${sections.length} áreas preenchidas</p></div></div>
 <div class="profile-checklist">${sections.map(([label,filled])=>`<span class="badge">${filled?'✓':'○'} ${label}</span>`).join('')}</div>
 <form id="profileForm"><div class="row"><label>Foto de perfil<input id="profilePhoto" type="file" accept="image/jpeg,image/png,image/webp"></label><button type="button" id="removeProfilePhoto" class="secondary small">Remover foto</button></div><small>A foto será atualizada ao salvar o perfil.</small><div class="form-grid">${fields.map(([n,l])=>`<label>${l}<input name="${n}" value="${esc(profile[n])}" ${n==='term'?'type="number" min="1" max="20" required':n==='email'?'type="email"':''}></label>`).join('')}</div><label>Resumo profissional<textarea name="summary" rows="4" maxlength="10000">${esc(profile.summary || '')}</textarea></label><label>Cargos de interesse<input name="target_roles" value="${esc((profile.target_roles||[]).join(', '))}" placeholder="Ex.: estágio em desenvolvimento, analista júnior"><small>Separe por vírgulas.</small></label><label>Habilidades<input name="skills" value="${esc((profile.skills||[]).join(', '))}" placeholder="Ex.: Python, SQL, comunicação"><small>Inclua apenas competências que você consegue demonstrar. Separe por vírgulas.</small></label><label>Projetos e evidências (JSON)<textarea name="evidence" rows="7" spellcheck="false">${esc(JSON.stringify(profile.evidence||[],null,2))}</textarea><small>Lista de objetos. Exemplo de estrutura: [{"name": "Nome do projeto", "description": "O que você fez", "url": "https://..."}]. Não invente experiências.</small></label><button type="submit">Salvar perfil</button></form></div>
-<div class="card"><h2>Seções do currículo</h2><p>Confira as seções e os contatos identificados no texto do arquivo.</p>
-${resumes.length ? `<div class="row"><select id="profileResume" aria-label="Currículo para analisar">${resumes.map(r=>`<option value="${esc(r.id)}">${esc(r.filename)}</option>`).join('')}</select><button id="inspectResume" type="button" class="secondary">Analisar currículo</button></div><div id="resumeSections" class="profile-checklist" role="status"></div>` : '<a href="#resumes">Adicionar currículo</a>'}</div>
+<div class="card"><h2>Preencher perfil com currículo</h2><p>Importe um PDF ou DOCX e revise os dados encontrados. Escolha os campos que deseja preencher; depois clique em Salvar perfil.</p>
+<form id="profileImportForm" class="upload"><label>Currículo para importar<input id="profileImportFile" type="file" accept=".pdf,.docx" required></label><small>Até 5 MiB. O arquivo será adicionado aos seus currículos. PDFs precisam ter texto selecionável.</small><button type="submit">Importar currículo</button></form>
+${resumes.length ? `<div class="row"><select id="profileResume" aria-label="Currículo já salvo">${resumes.map(r=>`<option value="${esc(r.id)}">${esc(r.filename)}</option>`).join('')}</select><button id="fillFromResume" type="button" class="secondary">Usar este currículo</button><button id="inspectResume" type="button" class="secondary">Analisar seções</button></div><div id="resumeSections" class="profile-checklist" role="status"></div>` : ''}
+<div id="profileImportStatus" role="status" aria-live="polite"></div><div id="profileImportPreview"></div></div>
 <div class="card"><h2>Dados da conta</h2><p>Baixe uma cópia dos seus dados antes de excluir a conta.</p><a href="#data">Exportar meus dados</a>
 <details class="account-delete"><summary>Excluir conta</summary><p>A exclusão é permanente e remove o perfil, as vagas, os currículos e o histórico de IA desta conta.</p>
 <form id="deleteAccountForm"><label>Digite EXCLUIR para confirmar<input name="confirmation" autocomplete="off" required pattern="EXCLUIR"></label><button class="danger" type="submit">Excluir minha conta</button></form></details></div>`;
@@ -884,6 +899,75 @@ const updateAvatar = () => {
   }
 };
 updateAvatar();
+const profileForm = $('profileForm');
+let importGeneration = 0;
+const importActive = generation => session?.user.id === owner && $('profileForm') === profileForm && generation === importGeneration;
+async function showProfilePreview(id, generation) {
+  const report = await api('/api/resumes/' + encodeURIComponent(id) + '/profile-preview', {}, owner);
+  if (!importActive(generation)) return;
+  const labels = Object.fromEntries([...fields, ['summary','Resumo profissional'], ['target_roles','Cargos de interesse'], ['skills','Habilidades']]);
+  const suggestions = Object.fromEntries(Object.entries(report.suggestions || {}).filter(([key]) => Object.hasOwn(labels, key)));
+  const entries = Object.entries(suggestions);
+  const baseline = Object.fromEntries(entries.map(([key]) => [key, profileForm.elements.namedItem(key).value]));
+  $('profileImportStatus').textContent = !report.has_text ? 'Não foi encontrado texto legível. Use PDF com texto selecionável ou DOCX.' : entries.length ? 'Revise as sugestões abaixo. Campos já preenchidos ficam desmarcados para preservar suas informações.' : 'Não foi possível identificar campos com segurança. Você pode preencher o perfil manualmente.';
+  const preview = $('profileImportPreview');
+  preview.innerHTML = entries.length ? `<div class="profile-import-fields">${entries.map(([key,value]) => {
+    const current = profileForm.elements.namedItem(key).value;
+    const displayed = Array.isArray(value) ? value.join(', ') : String(value);
+    return `<label class="profile-import-field"><span><input type="checkbox" data-profile-import="${key}" ${current.trim() ? '' : 'checked'}> ${esc(labels[key])}</span><span class="profile-import-value">${esc(displayed)}</span>${current.trim() ? `<small>Atual: ${esc(current)}</small>` : ''}</label>`;
+  }).join('')}</div><button id="applyProfileImport" type="button">Preencher campos selecionados</button>` : '';
+  profileForm.oninput = event => {
+    const checkbox = preview.querySelector(`[data-profile-import="${event.target.name}"]`);
+    if (checkbox) checkbox.checked = false;
+  };
+  preview.querySelectorAll('[data-profile-import]').forEach(checkbox => {
+    checkbox.onchange = () => {
+      if (checkbox.checked) baseline[checkbox.dataset.profileImport] = profileForm.elements.namedItem(checkbox.dataset.profileImport).value;
+    };
+  });
+  if (entries.length) $('applyProfileImport').onclick = () => {
+    if (!importActive(generation)) return;
+    const selected = [...preview.querySelectorAll('[data-profile-import]:checked')].map(input => input.dataset.profileImport);
+    if (!selected.length) { $('profileImportStatus').textContent = 'Selecione ao menos um campo para preencher.'; return; }
+    const applied = applyProfileSuggestions(profileForm, suggestions, selected, baseline);
+    if (!applied.length) { $('profileImportStatus').textContent = 'Os campos foram editados após a prévia. Selecione novamente os que deseja substituir.'; return; }
+    preview.replaceChildren();
+    profileForm.oninput = null;
+    $('profileImportStatus').textContent = 'Campos preenchidos. Revise o formulário e clique em Salvar perfil para confirmar.';
+    profileForm.elements.namedItem(applied[0]).focus();
+  };
+}
+function startProfileImport() {
+  const generation = ++importGeneration;
+  $('profileImportPreview').replaceChildren();
+  $('profileImportStatus').textContent = 'Lendo currículo…';
+  return generation;
+}
+async function withProfileImport(task) {
+  const generation = startProfileImport();
+  try { await task(generation); }
+  catch (error) {
+    if (importActive(generation)) $('profileImportStatus').textContent = error.message || 'Não foi possível importar o currículo. Tente novamente.';
+  }
+}
+$('profileImportForm').onsubmit = event => {
+  event.preventDefault();
+  const file = $('profileImportFile').files[0];
+  busy(event.submitter, () => withProfileImport(async generation => {
+    if (!file || file.size > 5 * 1024 * 1024) throw Error('Escolha um PDF ou DOCX de até 5 MiB.');
+    const data = new FormData();
+    data.append('file', file);
+    const row = await api('/api/resumes', {method:'POST', body:data}, owner);
+    if (!importActive(generation)) return;
+    resumes = [row, ...resumes.filter(item => item.id !== row.id)];
+    await showProfilePreview(row.id, generation);
+  }));
+};
+const fill = $('fillFromResume');
+if (fill) fill.onclick = () => {
+  const selected = $('profileResume').value;
+  busy(fill, () => withProfileImport(generation => showProfilePreview(selected, generation)));
+};
 const inspect = $('inspectResume');
 if (inspect) inspect.onclick = () => busy(inspect, async () => {
   const selected = $('profileResume').value;
@@ -899,7 +983,12 @@ if (inspect) inspect.onclick = () => busy(inspect, async () => {
   output.innerHTML = Object.entries(labels).map(([key,label]) =>
     `<span class="badge">${found[key] ? '✓' : '○'} ${label}</span>`).join('');
 });
-if (inspect) $('profileResume').onchange = () => $('resumeSections').replaceChildren();
+if (inspect) $('profileResume').onchange = () => {
+  importGeneration++;
+  $('resumeSections').replaceChildren();
+  $('profileImportPreview').replaceChildren();
+  $('profileImportStatus').textContent = '';
+};
 $('removeProfilePhoto').onclick = () => { avatar = ''; $('profilePhoto').value = ''; updateAvatar(); };
 $('deleteAccountForm').onsubmit = event => {
   event.preventDefault();

@@ -6,6 +6,26 @@ from app.cloud.auth import User, require_user
 from app.cloud.main import app
 
 
+def test_empty_profile_does_not_block_search_or_remove_matching_jobs(monkeypatch):
+    from app.cloud.store import get_store
+    class EmptyProfileStore:
+        async def profile(self): return {}
+    async def feed(key):
+        return [discovery.normalize({'title': 'Estágio Python', 'url': 'https://example.com/python'}, 'Demo', '')], True
+    monkeypatch.setattr(discovery, 'get_feed', feed)
+    app.dependency_overrides[get_store] = lambda: EmptyProfileStore()
+    app.dependency_overrides[require_user] = lambda: User('owner', None, 'token')
+    try:
+        with TestClient(app) as client:
+            result = client.get('/api/discovery/jobs', params={'q': 'Python', 'profile_only': True})
+            assert result.status_code == 200
+            assert result.json()['total'] == 1
+            assert result.json()['jobs'][0]['fit_reasons'] == []
+    finally:
+        app.dependency_overrides.pop(get_store, None)
+        app.dependency_overrides.pop(require_user, None)
+
+
 def test_discovery_requires_a_session(monkeypatch):
     monkeypatch.setenv('SUPABASE_URL', 'https://example.supabase.co')
     monkeypatch.setenv('SUPABASE_ANON_KEY', 'public-anon')

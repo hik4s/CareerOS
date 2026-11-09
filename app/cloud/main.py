@@ -269,6 +269,15 @@ async def resume_sections(id: UUID, store: SupabaseStore = Depends(get_store)):
     return {'has_text': bool(text.strip()), 'sections': report['sections'], 'contacts': report['contacts']}
 
 
+@app.get('/api/resumes/{id}/profile-preview')
+async def resume_profile_preview(id: UUID, store: SupabaseStore = Depends(get_store)):
+    from .profile_import import profile_suggestions
+
+    row = await resume_row(id, store)
+    text = row.get('text') or ''
+    return {'has_text': bool(text.strip()), 'suggestions': profile_suggestions(text)}
+
+
 @app.get('/api/resumes/{id}/download')
 async def download_resume(id: UUID, store: SupabaseStore = Depends(get_store)):
     row = await resume_row(id, store)
