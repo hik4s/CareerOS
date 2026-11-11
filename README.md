@@ -100,7 +100,9 @@ Testes com serviços simulados não comprovam OAuth, RLS, Storage ou chamadas de
 
 Com o ambiente configurado: entrar → revisar perfil → buscar uma vaga → salvar e atualizar o status → carregar um currículo → comparar as informações → exportar os dados da conta. Uma segunda conta deve permanecer sem acesso aos registros da primeira.
 
-Não há link público de demonstração documentado neste README. Screenshots e vídeo do fluxo ainda precisam ser adicionados.
+Não há link público de demonstração documentado neste README. Há [capturas reproduzíveis da interface](docs/PORTFOLIO_CAPTURES.md), com dados fictícios e autenticação/API simuladas; elas não comprovam a operação do ambiente publicado. Vídeo do fluxo permanece pendente.
+
+![Visão geral com dados fictícios e serviços simulados](docs/assets/portfolio-overview.png)
 
 ## Limites e próximos passos do MVP
 
