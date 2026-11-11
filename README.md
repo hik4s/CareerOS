@@ -8,6 +8,16 @@ O CareerOS reúne oportunidades, perfil profissional, currículos e acompanhamen
 
 [![Cloud checks](https://github.com/hik4s/CareerOS/actions/workflows/cloud-ci.yml/badge.svg)](https://github.com/hik4s/CareerOS/actions/workflows/cloud-ci.yml)
 
+## Experimente o CareerOS
+
+**[Abrir a demonstração pública](https://careeros-v1.onrender.com/)**
+
+Recrutadores e demais visitantes podem acessar o site e criar sua própria conta para experimentar o aplicativo. Após o cadastro, siga as instruções de acesso exibidas na tela.
+
+Roteiro sugerido: criar conta → revisar perfil → buscar vagas → salvar uma oportunidade → acompanhar a candidatura. Para explorar a importação de currículo, você pode usar um documento fictício.
+
+A hospedagem gratuita pode exigir aguardar a inicialização no primeiro acesso. Integrações opcionais continuam sujeitas à configuração e à disponibilidade das fontes.
+
 ## Visão rápida
 
 | Área | Implementação |
@@ -100,7 +110,7 @@ Testes com serviços simulados não comprovam OAuth, RLS, Storage ou chamadas de
 
 Com o ambiente configurado: entrar → revisar perfil → buscar uma vaga → salvar e atualizar o status → carregar um currículo → comparar as informações → exportar os dados da conta. Uma segunda conta deve permanecer sem acesso aos registros da primeira.
 
-Não há link público de demonstração documentado neste README. Há [capturas reproduzíveis da interface](docs/PORTFOLIO_CAPTURES.md), com dados fictícios e autenticação/API simuladas; elas não comprovam a operação do ambiente publicado. Vídeo do fluxo permanece pendente.
+A [demonstração pública](https://careeros-v1.onrender.com/) permite criar uma conta e experimentar o aplicativo. Há [capturas reproduzíveis da interface](docs/PORTFOLIO_CAPTURES.md), com dados fictícios e autenticação/API simuladas; elas não comprovam a operação do ambiente publicado. Vídeo do fluxo permanece pendente.
 
 ![Visão geral com dados fictícios e serviços simulados](docs/assets/portfolio-overview.png)
 
@@ -108,7 +118,7 @@ Não há link público de demonstração documentado neste README. Há [capturas
 
 1. Medir relevância, cobertura e tempo de resposta da busca com um conjunto fixo de consultas.
 2. Incluir testes regionais no CI e registrar a validação real de autenticação, RLS e Storage.
-3. Publicar demonstração com dados fictícios e instruções reproduzíveis.
+3. Ampliar o roteiro e as evidências da demonstração pública com dados fictícios.
 4. Dividir os módulos grandes de interface e descoberta por responsabilidade.
 5. Evoluir a análise de aderência com critérios explicáveis e avaliação de resultados.
 
